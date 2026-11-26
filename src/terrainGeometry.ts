@@ -2,6 +2,7 @@ import type { TrackMeshPart, TrackBounds, TrackMeshData } from "./trackGeometry"
 import { createRouteConstraintIndex } from "./routeConstraints";
 
 export type TerrainElevationSampler = (latitude: number, longitude: number) => number | null;
+export type TerrainColorSampler = (x: number, z: number) => readonly [number, number, number];
 
 export type TerrainMeshData = TrackMeshPart & Readonly<{
   bounds: TrackBounds;
@@ -11,7 +12,7 @@ export type TerrainMeshData = TrackMeshPart & Readonly<{
 }>;
 
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
-type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[] };
+type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[]; colors?: number[] };
 type TerrainAreaBounds = Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
 
 const createMutableMeshPart = (): MutableMeshPart => ({ positions: [], normals: [], indices: [] });
@@ -98,6 +99,7 @@ export const createTerrainMeshData = (
   geometry: TrackMeshData,
   elevationAt: TerrainElevationSampler,
   requestedGridSize = 65,
+  colorAt?: TerrainColorSampler,
 ): TerrainMeshData => {
   const gridSize = Math.max(9, Math.min(129, Math.round(requestedGridSize)));
   const area = getTerrainAreaBounds(geometry);
@@ -118,6 +120,9 @@ export const createTerrainMeshData = (
     return sampleHeight(x, z);
   });
   const mesh = createMutableMeshPart();
+  if (colorAt !== undefined) {
+    mesh.colors = [];
+  }
   const getHeight = (column: number, row: number): number => heights[row * columns + column];
 
   for (let row = 0; row < rows; row += 1) {
@@ -133,6 +138,7 @@ export const createTerrainMeshData = (
       const z = area.minZ + stepZ * row;
       mesh.positions.push(x, getHeight(column, row), z);
       mesh.normals.push(normal.x, normal.y, normal.z);
+      mesh.colors?.push(...(colorAt?.(x, z) ?? [0.3, 0.4, 0.24]), 1);
     }
   }
 
@@ -188,6 +194,7 @@ export const createTerrainMeshData = (
     positions: Object.freeze(mesh.positions),
     normals: Object.freeze(mesh.normals),
     indices: Object.freeze(mesh.indices),
+    ...(mesh.colors === undefined ? {} : { colors: Object.freeze(mesh.colors) }),
     bounds: Object.freeze(bounds),
     columns,
     rows,

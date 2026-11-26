@@ -1,5 +1,13 @@
 import type { TrackMeshPart, TrackMeshData } from "./trackGeometry";
 import type { TerrainMeshData } from "./terrainGeometry";
+import {
+  canPlaceProceduralTreeAt,
+  emptyOpenStreetMapFeatures,
+  getLandUseCategoryAt,
+  type MapColor,
+  type OpenStreetMapBuilding,
+  type OpenStreetMapFeatures,
+} from "./openStreetMap";
 
 export type TerrainSceneryData = Readonly<{
   foliage: TrackMeshPart;
@@ -9,10 +17,15 @@ export type TerrainSceneryData = Readonly<{
 }>;
 
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
-type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[] };
+type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[]; colors?: number[] };
 type Placement = Readonly<{ x: number; z: number }>;
 
-const createMutableMeshPart = (): MutableMeshPart => ({ positions: [], normals: [], indices: [] });
+const createMutableMeshPart = (withColors = false): MutableMeshPart => ({
+  positions: [],
+  normals: [],
+  indices: [],
+  ...(withColors ? { colors: [] } : {}),
+});
 
 const subtract = (left: Point3, right: Point3): Point3 => ({
   x: left.x - right.x,
@@ -33,7 +46,12 @@ const normalize = (point: Point3): Point3 => {
 
 const dot = (left: Point3, right: Point3): number => left.x * right.x + left.y * right.y + left.z * right.z;
 
-const appendTriangle = (part: MutableMeshPart, vertices: readonly [Point3, Point3, Point3], expectedNormal: Point3): void => {
+const appendTriangle = (
+  part: MutableMeshPart,
+  vertices: readonly [Point3, Point3, Point3],
+  expectedNormal: Point3,
+  color?: MapColor,
+): void => {
   const firstNormal = cross(subtract(vertices[1], vertices[0]), subtract(vertices[2], vertices[0]));
   const oriented = dot(firstNormal, expectedNormal) < 0 ? [vertices[0], vertices[2], vertices[1]] as const : vertices;
   const normal = normalize(cross(subtract(oriented[1], oriented[0]), subtract(oriented[2], oriented[0])));
@@ -41,13 +59,19 @@ const appendTriangle = (part: MutableMeshPart, vertices: readonly [Point3, Point
   oriented.forEach((point) => {
     part.positions.push(point.x, point.y, point.z);
     part.normals.push(normal.x, normal.y, normal.z);
+    part.colors?.push(...(color ?? [1, 1, 1]), 1);
   });
   part.indices.push(firstIndex, firstIndex + 1, firstIndex + 2);
 };
 
-const appendQuad = (part: MutableMeshPart, vertices: readonly [Point3, Point3, Point3, Point3], expectedNormal: Point3): void => {
-  appendTriangle(part, [vertices[0], vertices[1], vertices[2]], expectedNormal);
-  appendTriangle(part, [vertices[0], vertices[2], vertices[3]], expectedNormal);
+const appendQuad = (
+  part: MutableMeshPart,
+  vertices: readonly [Point3, Point3, Point3, Point3],
+  expectedNormal: Point3,
+  color?: MapColor,
+): void => {
+  appendTriangle(part, [vertices[0], vertices[1], vertices[2]], expectedNormal, color);
+  appendTriangle(part, [vertices[0], vertices[2], vertices[3]], expectedNormal, color);
 };
 
 const createRandom = (seed: number): (() => number) => {
@@ -199,16 +223,108 @@ const createBuilding = (
   });
 };
 
+const signedArea = (points: readonly Placement[]): number => points.reduce((area, point, index) => {
+  const next = points[(index + 1) % points.length];
+  return area + point.x * next.z - next.x * point.z;
+}, 0) / 2;
+
+const cross2d = (a: Placement, b: Placement, c: Placement): number =>
+  (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+
+const isInsideTriangle = (point: Placement, a: Placement, b: Placement, c: Placement): boolean => {
+  const first = cross2d(a, b, point);
+  const second = cross2d(b, c, point);
+  const third = cross2d(c, a, point);
+  return first >= -1e-8 && second >= -1e-8 && third >= -1e-8;
+};
+
+const triangulatePolygon = (polygon: readonly Placement[]): readonly (readonly [number, number, number])[] => {
+  const orientation = signedArea(polygon) >= 0 ? 1 : -1;
+  const remaining = polygon.map((_point, index) => index);
+  const triangles: (readonly [number, number, number])[] = [];
+
+  while (remaining.length > 3) {
+    let clippedEar = false;
+    for (let cursor = 0; cursor < remaining.length; cursor += 1) {
+      const previous = remaining[(cursor + remaining.length - 1) % remaining.length];
+      const current = remaining[cursor];
+      const next = remaining[(cursor + 1) % remaining.length];
+      if (cross2d(polygon[previous], polygon[current], polygon[next]) * orientation <= 1e-8) {
+        continue;
+      }
+      const containsVertex = remaining.some((index) =>
+        index !== previous && index !== current && index !== next &&
+        isInsideTriangle(polygon[index], polygon[previous], polygon[current], polygon[next]));
+      if (containsVertex) {
+        continue;
+      }
+      triangles.push(orientation > 0 ? [previous, current, next] : [next, current, previous]);
+      remaining.splice(cursor, 1);
+      clippedEar = true;
+      break;
+    }
+    if (!clippedEar) {
+      return Object.freeze([]);
+    }
+  }
+
+  if (remaining.length === 3) {
+    triangles.push(orientation > 0
+      ? [remaining[0], remaining[1], remaining[2]]
+      : [remaining[2], remaining[1], remaining[0]]);
+  }
+  return Object.freeze(triangles);
+};
+
+const createMappedBuilding = (
+  building: OpenStreetMapBuilding,
+  terrain: TerrainMeshData,
+  scale: number,
+  walls: MutableMeshPart,
+  roofs: MutableMeshPart,
+): void => {
+  const points = building.points.slice(0, -1).filter((point, index, polygon) => {
+    const previous = polygon[(index + polygon.length - 1) % polygon.length];
+    return Math.hypot(point.x - previous.x, point.z - previous.z) > 1e-7;
+  });
+  if (points.length < 3 || Math.abs(signedArea(points)) < 1e-6) {
+    return;
+  }
+
+  const height = (building.heightMeters ?? 6) * scale;
+  const ground = points.map((point) => terrain.sampleHeightAt(point.x, point.z));
+  const baseVertices = points.map((point, index) => ({ x: point.x, y: ground[index], z: point.z }));
+  const roofVertices = points.map((point, index) => ({ x: point.x, y: ground[index] + height, z: point.z }));
+  const orientation = signedArea(points) >= 0 ? 1 : -1;
+
+  points.forEach((point, index) => {
+    const next = (index + 1) % points.length;
+    const dx = points[next].x - point.x;
+    const dz = points[next].z - point.z;
+    appendQuad(walls, [baseVertices[index], baseVertices[next], roofVertices[next], roofVertices[index]], {
+      x: dz * orientation,
+      y: 0,
+      z: -dx * orientation,
+    }, building.wallColor);
+  });
+
+  triangulatePolygon(points).forEach(([first, second, third]) => {
+    appendTriangle(roofs, [roofVertices[first], roofVertices[second], roofVertices[third]], { x: 0, y: 1, z: 0 }, building.roofColor);
+  });
+};
+
 const freezePart = (part: MutableMeshPart): TrackMeshPart => Object.freeze({
   positions: Object.freeze(part.positions),
   normals: Object.freeze(part.normals),
   indices: Object.freeze(part.indices),
+  ...(part.colors === undefined ? {} : { colors: Object.freeze(part.colors) }),
 });
 
 export const createTerrainScenery = (
   terrain: TerrainMeshData,
   geometry: TrackMeshData,
   seed = 0x4b1d7e2a,
+  features: OpenStreetMapFeatures = emptyOpenStreetMapFeatures,
 ): TerrainSceneryData => {
   const random = createRandom(seed);
   const scale = geometry.projection.sceneUnitsPerMeter;
@@ -219,8 +335,9 @@ export const createTerrainScenery = (
   const buildings: Placement[] = [];
   const foliage = createMutableMeshPart();
   const trunks = createMutableMeshPart();
-  const buildingWalls = createMutableMeshPart();
-  const buildingRoofs = createMutableMeshPart();
+  const hasMappedBuildings = features.buildings.length > 0;
+  const buildingWalls = createMutableMeshPart(hasMappedBuildings);
+  const buildingRoofs = createMutableMeshPart(hasMappedBuildings);
   const createPlacement = (): Placement => Object.freeze({
     x: terrain.bounds.minX + random() * (terrain.bounds.maxX - terrain.bounds.minX),
     z: terrain.bounds.minZ + random() * (terrain.bounds.maxZ - terrain.bounds.minZ),
@@ -230,6 +347,7 @@ export const createTerrainScenery = (
     const placement = createPlacement();
     if (
       getDistanceFromRoute(placement.x, placement.z, geometry) < 9 * scale ||
+      !canPlaceProceduralTreeAt(placement.x, placement.z, features.areas) ||
       !isSpacedFrom(placement, planted, 10 * scale)
     ) {
       continue;
@@ -248,10 +366,14 @@ export const createTerrainScenery = (
     );
   }
 
-  for (let attempt = 0; buildings.length < targetBuildingCount && attempt < targetBuildingCount * 150; attempt += 1) {
+  features.buildings.forEach((building) => createMappedBuilding(building, terrain, scale, buildingWalls, buildingRoofs));
+
+  for (let attempt = 0; !hasMappedBuildings && buildings.length < targetBuildingCount && attempt < targetBuildingCount * 150; attempt += 1) {
     const placement = createPlacement();
+    const landUse = getLandUseCategoryAt(placement.x, placement.z, features.areas);
     if (
       getDistanceFromRoute(placement.x, placement.z, geometry) < 18 * scale ||
+      (landUse !== null && landUse !== "residential" && landUse !== "industrial") ||
       !isSpacedFrom(placement, buildings, 38 * scale) ||
       !isSpacedFrom(placement, planted, 9 * scale)
     ) {

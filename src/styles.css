@@ -186,6 +186,8 @@ button, input { font: inherit; }
 .empty-button span { font-size: 16px; }
 .file-hint { margin-top: 11px; color: #677771; font-size: 9px; }
 .viewer-footer { position: absolute; z-index: 2; right: 17px; bottom: 14px; left: 17px; display: flex; justify-content: space-between; color: #71817b; font-size: 7px; pointer-events: none; }
+.data-attribution { position: absolute; z-index: 2; right: 14px; bottom: 30px; color: rgba(235, 242, 238, 0.78); font-size: 9px; text-decoration: none; }
+.data-attribution:hover { color: #fff; text-decoration: underline; }
 .engine-error { position: absolute; z-index: 3; top: 18px; right: 18px; left: 18px; padding: 12px 14px; border: 1px solid rgba(240, 160, 140, 0.25); border-radius: 7px; background: rgba(52, 33, 30, 0.9); color: #f0b09d; font-size: 11px; line-height: 1.5; }
 .engine-error[hidden] { display: none; }
 
