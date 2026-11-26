@@ -11,10 +11,25 @@ import {
 } from "@babylonjs/lite";
 import type { Mesh } from "@babylonjs/lite";
 import { getMapCameraView, getRouteCameraState, getWrappedAngleDifference } from "./mapCameraSync";
-import { attachRouteCameraControls, createRouteCamera, fitCameraToBounds } from "./cameraControls";
+import {
+  attachRouteCameraControls,
+  centerCameraOnTrackPoint,
+  createRouteCamera,
+  fitCameraToBounds,
+  getPointerRay,
+} from "./cameraControls";
 import { getTrackSummary, parseGpx, type Track } from "./gpx";
-import { createTrackMeshData, type TrackMeshPart, type TrackProjection } from "./trackGeometry";
+import {
+  createTrackMeshData,
+  getContinuousLongitudes,
+  type TrackMeshData,
+  type TrackMeshPart,
+  type TrackProjection,
+} from "./trackGeometry";
+import { findTrackPointNearRay } from "./trackHover";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
+import { getTrackHoverTolerance } from "./trackHoverLayout";
+import { findNearestScreenPointIndex } from "./trackPointFocus";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
 
@@ -114,7 +129,39 @@ const initializeViewer = async (): Promise<void> => {
     const camera = createRouteCamera();
     const terrainMap = createTerrainMap(mapContainer, mapError);
     let trackProjection: TrackProjection | null = null;
+    let activeGeometry: TrackMeshData | null = null;
+    let activeTrackPoints: Track["points"] = [];
     let syncingMapFromRoute = false;
+
+    const focusTrackPoint = (index: number): void => {
+      const point = activeGeometry?.routePoints[index];
+      if (point !== undefined) {
+        centerCameraOnTrackPoint(camera, point);
+      }
+    };
+
+    terrainMap.map.on("dblclick", (event) => {
+      if (activeTrackPoints.length === 0) {
+        return;
+      }
+
+      const centerLongitude = terrainMap.map.getCenter().lng;
+      const longitudes = getContinuousLongitudes(activeTrackPoints);
+      const screenPoints = activeTrackPoints.map((point, index) => {
+        const longitude = longitudes[index] + 360 * Math.round((centerLongitude - longitudes[index]) / 360);
+        const screenPoint = terrainMap.map.project([longitude, point.latitude]);
+        return { x: screenPoint.x, y: screenPoint.y };
+      });
+      const pointIndex = findNearestScreenPointIndex(
+        screenPoints,
+        { x: event.point.x, y: event.point.y },
+        18,
+      );
+      if (pointIndex !== null) {
+        event.preventDefault();
+        focusTrackPoint(pointIndex);
+      }
+    });
 
     const syncRouteFromMap = (): void => {
       if (trackProjection === null || syncingMapFromRoute) {
@@ -189,6 +236,31 @@ const initializeViewer = async (): Promise<void> => {
     attachRouteCameraControls(camera, canvas, scene);
     addToScene(scene, createHemisphericLight([0, 1, 0], 1));
     const hoverOverlay = createTrackHoverOverlay(engine, scene, camera, canvas);
+    canvas.addEventListener("dblclick", (event: MouseEvent) => {
+      if (activeGeometry === null) {
+        return;
+      }
+
+      const pickingRay = getPointerRay(camera, canvas, event.clientX, event.clientY);
+      const bounds = canvas.getBoundingClientRect();
+      const ray = pickingRay === null
+        ? null
+        : {
+            origin: { x: pickingRay.origin[0], y: pickingRay.origin[1], z: pickingRay.origin[2] },
+            direction: { x: pickingRay.direction[0], y: pickingRay.direction[1], z: pickingRay.direction[2] },
+          };
+      const tolerance = getTrackHoverTolerance(
+        activeGeometry.roadHalfWidth,
+        camera.radius,
+        camera.fov,
+        bounds.height,
+      );
+      const point = ray === null ? null : findTrackPointNearRay(ray, activeGeometry.routePoints, tolerance);
+      if (point !== null) {
+        event.preventDefault();
+        focusTrackPoint(point.pointNumber - 1);
+      }
+    });
     canvas.addEventListener("pointermove", (event: PointerEvent) => {
       hoverOverlay.updatePointer(event.clientX, event.clientY);
     });
@@ -206,6 +278,8 @@ const initializeViewer = async (): Promise<void> => {
     const renderTrack = (track: Track, fileName: string): void => {
       const geometry = createTrackMeshData(track.points);
       trackProjection = geometry.projection;
+      activeGeometry = geometry;
+      activeTrackPoints = track.points;
       terrainMap.setRoute(track.points);
       const meshes = [
         createRoadMesh(engine, "gpx-road", geometry, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),

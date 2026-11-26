@@ -8,6 +8,7 @@ import {
   getPointerPlaneIntersection,
   getViewportCenterOrbitTarget,
   createRouteCamera,
+  centerCameraOnTrackPoint,
   fitCameraToBounds,
   isControlClickOrbit,
   isPrimaryDragPan,
@@ -40,6 +41,26 @@ vi.mock("@babylonjs/lite", async (importOriginal) => {
 });
 
 describe("route camera controls", () => {
+  it("centers on a track point and clears pending camera motion", () => {
+    const camera = createRouteCamera();
+    camera.inertialAlphaOffset = 1;
+    camera.inertialBetaOffset = 1;
+    camera.inertialRadiusOffset = 1;
+    camera.inertialPanningX = 1;
+    camera.inertialPanningY = 1;
+
+    centerCameraOnTrackPoint(camera, { x: 3, y: 4, z: 5 });
+
+    expect(camera.target.x).toBe(3);
+    expect(camera.target.y).toBe(4);
+    expect(camera.target.z).toBe(5);
+    expect(camera.inertialAlphaOffset).toBe(0);
+    expect(camera.inertialBetaOffset).toBe(0);
+    expect(camera.inertialRadiusOffset).toBe(0);
+    expect(camera.inertialPanningX).toBe(0);
+    expect(camera.inertialPanningY).toBe(0);
+  });
+
   it("starts north-up with east on the right", () => {
     const camera = createRouteCamera();
     const cameraPosition = getCameraPosition(camera);

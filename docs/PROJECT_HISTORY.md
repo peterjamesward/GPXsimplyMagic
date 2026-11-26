@@ -44,4 +44,6 @@ This document preserves the project's conversation-driven narrative: the request
 
 23. **Show elevation across the route area.** The MapLibre demo terrain source advertised global bounds but only served DEM tiles around one sample region, leaving other routes flat. The terrain source now uses AWS's public global Terrarium DEM tiles, with the matching 256-pixel tile size, encoding, and attribution.
 
+24. **Center both views on a double-clicked track point.** Double-clicking a route point in the 3D view or terrain map centers the shared camera state on that point, preserving the current zoom and orientation; map clicks use a screen-space proximity check so double-clicking elsewhere retains normal map behavior.
+
 The recorded test and build results for the changes above are in their corresponding conversation summaries; this history file itself is documentation and does not change application behavior.

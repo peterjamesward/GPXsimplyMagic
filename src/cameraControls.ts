@@ -15,6 +15,17 @@ type Point3 = Readonly<{ x: number; y: number; z: number }>;
 export const createRouteCamera = (): ArcRotateCamera =>
   createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
 
+export const centerCameraOnTrackPoint = (camera: ArcRotateCamera, point: Point3): void => {
+  camera.target.x = point.x;
+  camera.target.y = point.y;
+  camera.target.z = point.z;
+  camera.inertialAlphaOffset = 0;
+  camera.inertialBetaOffset = 0;
+  camera.inertialRadiusOffset = 0;
+  camera.inertialPanningX = 0;
+  camera.inertialPanningY = 0;
+};
+
 export const isPrimaryDragPan = (event: Pick<PointerEvent, "button" | "ctrlKey">): boolean =>
   event.button === 0 && !event.ctrlKey;
 
