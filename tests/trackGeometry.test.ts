@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrackPoint } from "../src/gpx";
-import { createTrackMeshData } from "../src/trackGeometry";
+import { createTrackMeshData, getContinuousLongitudes } from "../src/trackGeometry";
 
 const samplePoints: readonly TrackPoint[] = [
   { latitude: 46.8, longitude: 9.5, elevationMeters: 1200 },
@@ -139,6 +139,14 @@ describe("createTrackMeshData", () => {
     const verticalDepth = Math.max(...zCoordinates) - Math.min(...zCoordinates);
 
     expect(horizontalWidth / verticalDepth).toBeCloseTo(2, 1);
+    expect(geometry.projection.centerLongitude).toBeCloseTo(-180);
+  });
+
+  it("unwraps route longitudes continuously for map rendering", () => {
+    expect(getContinuousLongitudes([
+      { latitude: 0, longitude: -179, elevationMeters: 0 },
+      { latitude: 0, longitude: 179, elevationMeters: 0 },
+    ])).toEqual([-179, -181]);
   });
 
   it("rejects routes that cannot form a mesh", () => {

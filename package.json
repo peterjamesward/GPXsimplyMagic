@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@babylonjs/lite": "^1.42.0"
+    "@babylonjs/lite": "^1.42.0",
+    "maplibre-gl": "^6.19.0"
   },
   "devDependencies": {
     "happy-dom": "^21.0.4",

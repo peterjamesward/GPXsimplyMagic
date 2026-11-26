@@ -56,30 +56,48 @@
             <span class="help-icon" aria-hidden="true">i</span>
             <div>
               <strong>Explore your route</strong>
-              <p>Drag to rotate · right-drag to pan · scroll to zoom</p>
+              <p>Drag to pan · Control-drag to rotate · scroll to zoom</p>
             </div>
           </div>
 
           <p id="status-message" class="status-message" role="status" aria-live="polite">Ready when you are — open a GPX route.</p>
-          <p class="privacy-note"><span aria-hidden="true">⌑</span> Your route stays on this device.</p>
+          <p class="privacy-note"><span aria-hidden="true">⌑</span> GPX stays local · terrain tiles load online.</p>
         </section>
 
-        <section class="viewer-panel" aria-label="3D route viewer">
-          <div class="viewer-topline">
-            <div class="viewer-title"><span class="viewer-title-dot"></span><span id="viewer-route-title">ROUTE PREVIEW</span></div>
-            <span class="viewer-mode">3D VIEW</span>
+        <section class="viewer-panel" aria-label="Synchronized route and terrain views">
+          <div class="view-switch" role="group" aria-label="Choose a view">
+            <button id="show-route-view" type="button" aria-controls="route-view-panel" aria-pressed="true">3D Route</button>
+            <button id="show-map-view" type="button" aria-controls="terrain-view-panel" aria-pressed="false">Map + Terrain</button>
           </div>
-          <div id="viewer" class="viewer">
-            <canvas id="route-canvas" aria-label="Interactive 3D cycling route"></canvas>
-            <div id="engine-error" class="engine-error" hidden></div>
-            <div id="empty-state" class="empty-state">
-              <div class="empty-orbit" aria-hidden="true"><span>↗</span></div>
-              <h2>Your next ride, in a new perspective.</h2>
-              <p>Drop a GPX file here or choose one to see your route take shape.</p>
-              <label class="empty-button" for="gpx-file">Choose a GPX file <span aria-hidden="true">→</span></label>
-              <span class="file-hint">GPX files · Stored locally in your browser</span>
-            </div>
-            <div class="viewer-footer"><span>DRAG TO ORBIT</span><span>SCROLL TO ZOOM</span><span>RIGHT-DRAG TO PAN</span></div>
+          <div id="viewer" class="views-composite">
+            <section id="route-view-panel" class="view-panel" aria-label="3D route view" aria-hidden="false">
+              <div class="viewer-topline">
+                <div class="viewer-title"><span class="viewer-title-dot"></span><span id="viewer-route-title">ROUTE PREVIEW</span></div>
+                <span class="viewer-mode">3D ROUTE</span>
+              </div>
+              <div id="route-view" class="viewer">
+                <canvas id="route-canvas" aria-label="Interactive 3D cycling route"></canvas>
+                <div id="engine-error" class="engine-error" hidden></div>
+                <div id="empty-state" class="empty-state">
+                  <div class="empty-orbit" aria-hidden="true"><span>↗</span></div>
+                  <h2>Your next ride, in a new perspective.</h2>
+                  <p>Drop a GPX file here or choose one to see your route take shape.</p>
+                  <label class="empty-button" for="gpx-file">Choose a GPX file <span aria-hidden="true">→</span></label>
+                  <span class="file-hint">GPX files · Stored locally in your browser</span>
+                </div>
+                <div class="viewer-footer"><span>DRAG TO PAN</span><span>CTRL-DRAG TO ORBIT</span><span>SCROLL TO ZOOM</span></div>
+              </div>
+            </section>
+            <section id="terrain-view-panel" class="view-panel" aria-label="MapLibre terrain view" aria-hidden="true" inert>
+              <div class="viewer-topline">
+                <div class="viewer-title"><span class="viewer-title-dot"></span><span>MAP AND TERRAIN</span></div>
+                <span class="viewer-mode">MAPLIBRE</span>
+              </div>
+              <div id="map-view" class="viewer">
+                <div id="map-canvas" aria-label="Interactive terrain map synchronized with the route"></div>
+                <div id="map-error" class="engine-error map-error" role="status" hidden>Map tiles could not be loaded. Check your internet connection.</div>
+              </div>
+            </section>
           </div>
         </section>
       </main>

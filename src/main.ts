@@ -10,15 +10,23 @@ import {
   startEngine,
 } from "@babylonjs/lite";
 import type { Mesh } from "@babylonjs/lite";
+import { getMapCameraView, getRouteCameraState, getWrappedAngleDifference } from "./mapCameraSync";
 import { attachRouteCameraControls, createRouteCamera, fitCameraToBounds } from "./cameraControls";
 import { getTrackSummary, parseGpx, type Track } from "./gpx";
-import { createTrackMeshData, type TrackMeshPart } from "./trackGeometry";
+import { createTrackMeshData, type TrackMeshPart, type TrackProjection } from "./trackGeometry";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
+import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#route-canvas");
 const fileInput = document.querySelector<HTMLInputElement>("#gpx-file");
 const viewer = document.querySelector<HTMLElement>("#viewer");
+const showRouteViewButton = document.querySelector<HTMLButtonElement>("#show-route-view");
+const showMapViewButton = document.querySelector<HTMLButtonElement>("#show-map-view");
+const routeViewPanel = document.querySelector<HTMLElement>("#route-view-panel");
+const terrainViewPanel = document.querySelector<HTMLElement>("#terrain-view-panel");
+const mapContainer = document.querySelector<HTMLElement>("#map-canvas");
+const mapError = document.querySelector<HTMLElement>("#map-error");
 const emptyState = document.querySelector<HTMLElement>("#empty-state");
 const statusMessage = document.querySelector<HTMLElement>("#status-message");
 const engineError = document.querySelector<HTMLElement>("#engine-error");
@@ -34,6 +42,12 @@ if (
   canvas === null ||
   fileInput === null ||
   viewer === null ||
+  showRouteViewButton === null ||
+  showMapViewButton === null ||
+  routeViewPanel === null ||
+  terrainViewPanel === null ||
+  mapContainer === null ||
+  mapError === null ||
   emptyState === null ||
   statusMessage === null ||
   engineError === null ||
@@ -47,6 +61,19 @@ if (
 ) {
   throw new Error("The route viewer page is missing required elements.");
 }
+
+const showView = (activeView: "route" | "map"): void => {
+  const isRouteActive = activeView === "route";
+  showRouteViewButton.setAttribute("aria-pressed", String(isRouteActive));
+  showMapViewButton.setAttribute("aria-pressed", String(!isRouteActive));
+  routeViewPanel.setAttribute("aria-hidden", String(!isRouteActive));
+  terrainViewPanel.setAttribute("aria-hidden", String(isRouteActive));
+  routeViewPanel.inert = !isRouteActive;
+  terrainViewPanel.inert = isRouteActive;
+};
+
+showRouteViewButton.addEventListener("click", () => showView("route"));
+showMapViewButton.addEventListener("click", () => showView("map"));
 
 const setStatus = (message: string, isError = false): void => {
   statusMessage.textContent = message;
@@ -79,9 +106,83 @@ const createRoadMesh = (
 
 const initializeViewer = async (): Promise<void> => {
   try {
-    const engine = await createEngine(canvas);
+    const [engine, { createTerrainMap }] = await Promise.all([
+      createEngine(canvas),
+      import("./maplibreTerrain"),
+    ]);
     const scene = createSceneContext(engine);
     const camera = createRouteCamera();
+    const terrainMap = createTerrainMap(mapContainer, mapError);
+    let trackProjection: TrackProjection | null = null;
+    let syncingMapFromRoute = false;
+
+    const syncRouteFromMap = (): void => {
+      if (trackProjection === null || syncingMapFromRoute) {
+        return;
+      }
+
+      const { width, height } = canvas.getBoundingClientRect();
+      const center = terrainMap.map.getCenter();
+      const routeCamera = getRouteCameraState(
+        {
+          center: [center.lng, center.lat],
+          zoom: terrainMap.map.getZoom(),
+          bearing: terrainMap.map.getBearing(),
+          pitch: terrainMap.map.getPitch(),
+        },
+        { width, height },
+        trackProjection,
+        camera.fov,
+        camera.target.y,
+      );
+      if (routeCamera === null) {
+        return;
+      }
+
+      camera.target.x = routeCamera.target.x;
+      camera.target.z = routeCamera.target.z;
+      camera.alpha = routeCamera.alpha;
+      camera.beta = routeCamera.beta;
+      camera.radius = routeCamera.radius;
+      camera.inertialAlphaOffset = 0;
+      camera.inertialBetaOffset = 0;
+      camera.inertialRadiusOffset = 0;
+      camera.inertialPanningX = 0;
+      camera.inertialPanningY = 0;
+    };
+    terrainMap.map.on("move", syncRouteFromMap);
+
+    const syncMapFromRoute = (): void => {
+      if (trackProjection !== null && terrainMap.map.isStyleLoaded()) {
+        const { width, height } = canvas.getBoundingClientRect();
+        const mapView = getMapCameraView(camera, { width, height }, trackProjection);
+        if (mapView !== null) {
+          const center = terrainMap.map.getCenter();
+          const longitudeDelta = ((center.lng - mapView.center[0] + 540) % 360) - 180;
+          const cameraChanged =
+            Math.abs(longitudeDelta) > 1e-8 ||
+            Math.abs(center.lat - mapView.center[1]) > 1e-8 ||
+            Math.abs(terrainMap.map.getZoom() - mapView.zoom) > 1e-6 ||
+            Math.abs(getWrappedAngleDifference(terrainMap.map.getBearing(), mapView.bearing)) > 1e-4 ||
+            Math.abs(terrainMap.map.getPitch() - mapView.pitch) > 1e-4;
+
+          if (cameraChanged) {
+            syncingMapFromRoute = true;
+            try {
+              terrainMap.map.jumpTo({ ...mapView, center: [mapView.center[0], mapView.center[1]] });
+            } finally {
+              syncingMapFromRoute = false;
+            }
+          }
+        }
+      }
+
+      requestAnimationFrame(syncMapFromRoute);
+    };
+    requestAnimationFrame(syncMapFromRoute);
+
+    const mapResizeObserver = new ResizeObserver(() => terrainMap.map.resize());
+    mapResizeObserver.observe(mapContainer);
 
     scene.clearColor = { r: 0.52, g: 0.57, b: 0.56, a: 1 };
     scene.camera = camera;
@@ -104,6 +205,8 @@ const initializeViewer = async (): Promise<void> => {
 
     const renderTrack = (track: Track, fileName: string): void => {
       const geometry = createTrackMeshData(track.points);
+      trackProjection = geometry.projection;
+      terrainMap.setRoute(track.points);
       const meshes = [
         createRoadMesh(engine, "gpx-road", geometry, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
         createRoadMesh(engine, "gpx-road-left", geometry.leftSide, [0.08, 0.68, 0.16], [0.015, 0.1, 0.025]),

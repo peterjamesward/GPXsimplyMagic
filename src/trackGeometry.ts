@@ -15,6 +15,13 @@ export type TrackBounds = Readonly<{
   maxZ: number;
 }>;
 
+export type TrackProjection = Readonly<{
+  centerLatitude: number;
+  centerLongitude: number;
+  longitudeScale: number;
+  sceneUnitsPerMeter: number;
+}>;
+
 export type TrackRoutePoint = Point3 & Readonly<{
   pointNumber: number;
   distanceMeters: number;
@@ -24,6 +31,7 @@ export type TrackRoutePoint = Point3 & Readonly<{
 
 export type TrackMeshData = TrackMeshPart & Readonly<{
   bounds: TrackBounds;
+  projection: TrackProjection;
   roadHalfWidth: number;
   routePoints: readonly TrackRoutePoint[];
   topSurface: TrackMeshPart;
@@ -35,6 +43,18 @@ type Point3 = Readonly<{ x: number; y: number; z: number }>;
 type MutableTrackMeshPart = { positions: number[]; normals: number[]; indices: number[] };
 
 const createMutableMeshPart = (): MutableTrackMeshPart => ({ positions: [], normals: [], indices: [] });
+
+export const getContinuousLongitudes = (points: readonly TrackPoint[]): readonly number[] => Object.freeze(
+  points.reduce((longitudes, point, index) => {
+    if (index === 0) {
+      return [...longitudes, point.longitude];
+    }
+
+    const previousPoint = points[index - 1];
+    const longitudeDelta = ((point.longitude - previousPoint.longitude + 540) % 360) - 180;
+    return [...longitudes, longitudes[index - 1] + longitudeDelta];
+  }, [] as number[]),
+);
 
 const freezeMeshPart = (part: MutableTrackMeshPart): TrackMeshPart => Object.freeze({
   positions: Object.freeze(part.positions),
@@ -74,15 +94,7 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
   }
 
   const meanLatitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
-  const unwrappedLongitudes = points.reduce((longitudes, point, index) => {
-    if (index === 0) {
-      return [...longitudes, point.longitude];
-    }
-
-    const previousPoint = points[index - 1];
-    const longitudeDelta = ((point.longitude - previousPoint.longitude + 540) % 360) - 180;
-    return [...longitudes, longitudes[index - 1] + longitudeDelta];
-  }, [] as number[]);
+  const unwrappedLongitudes = getContinuousLongitudes(points);
   const meanLongitude = unwrappedLongitudes.reduce((total, longitude) => total + longitude, 0) / points.length;
   const longitudeScale = Math.cos((meanLatitude * Math.PI) / 180);
   const projected = points.map((point, index): Point3 => ({
@@ -114,6 +126,12 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
   const scale = 12 / Math.max(horizontalSpan, elevationSpan * 2, 1);
   const centerX = (minX + maxX) / 2;
   const centerZ = (minZ + maxZ) / 2;
+  const projection = Object.freeze({
+    centerLatitude: meanLatitude + centerZ / 111_320,
+    centerLongitude: meanLongitude + centerX / (longitudeScale * 111_320),
+    longitudeScale,
+    sceneUnitsPerMeter: scale,
+  });
   const route = projected.map((point): Point3 => ({
     x: (point.x - centerX) * scale,
     y: 0.12 + (point.y - minElevation) * scale * 2,
@@ -225,6 +243,7 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
   return Object.freeze({
     ...freezeMeshPart(asphalt),
     bounds: Object.freeze(meshBounds),
+    projection,
     roadHalfWidth: halfWidth,
     routePoints: Object.freeze(routePoints),
     topSurface: freezeMeshPart(topSurface),

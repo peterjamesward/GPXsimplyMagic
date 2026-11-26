@@ -38,4 +38,10 @@ This document preserves the project's conversation-driven narrative: the request
 
 21. **Keep the project history with the repository.** This file records the sequence of requests and the resulting decisions so the development story can travel with the source, rather than remaining only in chat history.
 
+## Map detail
+
+22. **Load detailed map tiles as the view zooms in.** The MapLibre demo style only contained country-level vector tiles through zoom 6, so it could not show local roads when zoomed in. The basemap now uses OpenFreeMap's Liberty style, whose vector tiles include detailed road layers through zoom 14; the separate terrain elevation source and synchronized camera remain unchanged.
+
+23. **Show elevation across the route area.** The MapLibre demo terrain source advertised global bounds but only served DEM tiles around one sample region, leaving other routes flat. The terrain source now uses AWS's public global Terrarium DEM tiles, with the matching 256-pixel tile size, encoding, and attribution.
+
 The recorded test and build results for the changes above are in their corresponding conversation summaries; this history file itself is documentation and does not change application behavior.
