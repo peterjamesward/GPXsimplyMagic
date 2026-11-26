@@ -81,23 +81,28 @@ export const parseGpx = (xml: string): Track => {
   });
 };
 
+export const getTrackSegmentDistanceMeters = (previous: TrackPoint, point: TrackPoint): number => {
+  const earthRadiusMeters = 6_371_000;
+  const latitudeDelta = ((point.latitude - previous.latitude) * Math.PI) / 180;
+  const rawLongitudeDelta = ((point.longitude - previous.longitude) * Math.PI) / 180;
+  const longitudeDelta = Math.atan2(Math.sin(rawLongitudeDelta), Math.cos(rawLongitudeDelta));
+  const previousLatitude = (previous.latitude * Math.PI) / 180;
+  const latitude = (point.latitude * Math.PI) / 180;
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(previousLatitude) * Math.cos(latitude) * Math.sin(longitudeDelta / 2) ** 2;
+
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+};
+
 export const getTrackSummary = (points: readonly TrackPoint[]): Readonly<{
   distanceKm: number;
   elevationGainMeters: number;
 }> => {
-  const earthRadiusMeters = 6_371_000;
   const totals = points.slice(1).reduce(
     (summary, point, index) => {
       const previous = points[index];
-      const latitudeDelta = ((point.latitude - previous.latitude) * Math.PI) / 180;
-      const rawLongitudeDelta = ((point.longitude - previous.longitude) * Math.PI) / 180;
-      const longitudeDelta = Math.atan2(Math.sin(rawLongitudeDelta), Math.cos(rawLongitudeDelta));
-      const previousLatitude = (previous.latitude * Math.PI) / 180;
-      const latitude = (point.latitude * Math.PI) / 180;
-      const haversine =
-        Math.sin(latitudeDelta / 2) ** 2 +
-        Math.cos(previousLatitude) * Math.cos(latitude) * Math.sin(longitudeDelta / 2) ** 2;
-      const segmentMeters = earthRadiusMeters * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+      const segmentMeters = getTrackSegmentDistanceMeters(previous, point);
 
       return {
         distanceMeters: summary.distanceMeters + segmentMeters,

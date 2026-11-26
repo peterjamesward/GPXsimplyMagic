@@ -13,6 +13,7 @@ import type { Mesh } from "@babylonjs/lite";
 import { attachRouteCameraControls, createRouteCamera, fitCameraToBounds } from "./cameraControls";
 import { getTrackSummary, parseGpx, type Track } from "./gpx";
 import { createTrackMeshData, type TrackMeshPart } from "./trackGeometry";
+import { createTrackHoverOverlay } from "./trackHoverOverlay";
 import "./styles.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#route-canvas");
@@ -86,8 +87,18 @@ const initializeViewer = async (): Promise<void> => {
     scene.camera = camera;
     attachRouteCameraControls(camera, canvas, scene);
     addToScene(scene, createHemisphericLight([0, 1, 0], 1));
+    const hoverOverlay = createTrackHoverOverlay(engine, scene, camera, canvas);
+    canvas.addEventListener("pointermove", (event: PointerEvent) => {
+      hoverOverlay.updatePointer(event.clientX, event.clientY);
+    });
+    canvas.addEventListener("pointerleave", hoverOverlay.hide);
     await registerScene(scene);
     await startEngine(engine);
+    const refreshHoverOverlay = (): void => {
+      hoverOverlay.refresh();
+      requestAnimationFrame(refreshHoverOverlay);
+    };
+    requestAnimationFrame(refreshHoverOverlay);
 
     let activeMeshes: readonly Mesh[] = [];
 
@@ -103,6 +114,7 @@ const initializeViewer = async (): Promise<void> => {
       activeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
       meshes.forEach((mesh) => addToScene(scene, mesh));
       activeMeshes = meshes;
+      hoverOverlay.setRoute(geometry);
       fitCameraToBounds(camera, canvas, geometry.bounds);
 
       const summary = getTrackSummary(track.points);

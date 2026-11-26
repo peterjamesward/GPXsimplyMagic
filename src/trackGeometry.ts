@@ -1,4 +1,4 @@
-import type { TrackPoint } from "./gpx";
+import { getTrackSegmentDistanceMeters, type TrackPoint } from "./gpx";
 
 export type TrackMeshPart = Readonly<{
   positions: readonly number[];
@@ -15,8 +15,17 @@ export type TrackBounds = Readonly<{
   maxZ: number;
 }>;
 
+export type TrackRoutePoint = Point3 & Readonly<{
+  pointNumber: number;
+  distanceMeters: number;
+  gradientPercent: number | null;
+  altitudeMeters: number;
+}>;
+
 export type TrackMeshData = TrackMeshPart & Readonly<{
   bounds: TrackBounds;
+  roadHalfWidth: number;
+  routePoints: readonly TrackRoutePoint[];
   topSurface: TrackMeshPart;
   leftSide: TrackMeshPart;
   rightSide: TrackMeshPart;
@@ -110,6 +119,24 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     y: 0.12 + (point.y - minElevation) * scale * 2,
     z: (point.z - centerZ) * scale,
   }));
+  const routePoints = route.reduce<TrackRoutePoint[]>((result, position, index) => {
+    const previous = points[index - 1];
+    const point = points[index];
+    const next = points[index + 1];
+    const segmentDistanceMeters = previous === undefined ? 0 : getTrackSegmentDistanceMeters(previous, point);
+    const nextSegmentDistanceMeters = next === undefined ? 0 : getTrackSegmentDistanceMeters(point, next);
+
+    return [...result, Object.freeze({
+      ...position,
+      pointNumber: index + 1,
+      distanceMeters: (result[index - 1]?.distanceMeters ?? 0) + segmentDistanceMeters,
+      gradientPercent:
+        next === undefined || nextSegmentDistanceMeters === 0
+          ? null
+          : ((next.elevationMeters - point.elevationMeters) / nextSegmentDistanceMeters) * 100,
+      altitudeMeters: point.elevationMeters,
+    })];
+  }, []);
 
   const halfWidth = 2 * scale;
   const depth = 2 * scale;
@@ -198,6 +225,8 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
   return Object.freeze({
     ...freezeMeshPart(asphalt),
     bounds: Object.freeze(meshBounds),
+    roadHalfWidth: halfWidth,
+    routePoints: Object.freeze(routePoints),
     topSurface: freezeMeshPart(topSurface),
     leftSide: freezeMeshPart(leftSide),
     rightSide: freezeMeshPart(rightSide),

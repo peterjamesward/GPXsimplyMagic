@@ -35,7 +35,7 @@ export const getPointerZoomAnchor = (
   return getPointerPlaneIntersection(camera, canvas, clientX, clientY, camera.target, normal);
 };
 
-const getPointerRay = (
+export const getPointerRay = (
   camera: ArcRotateCamera,
   canvas: HTMLCanvasElement,
   clientX: number,
