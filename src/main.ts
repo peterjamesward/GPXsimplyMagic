@@ -5,8 +5,10 @@ import {
   createMeshFromData,
   createSceneContext,
   createStandardMaterial,
+  enableStandardVertexColors,
   removeFromScene,
   registerScene,
+  setMeshVisible,
   startEngine,
 } from "@babylonjs/lite";
 import type { Mesh } from "@babylonjs/lite";
@@ -18,7 +20,7 @@ import {
   fitCameraToBounds,
   getPointerRay,
 } from "./cameraControls";
-import { getTrackSummary, parseGpx, type Track } from "./gpx";
+import { parseGpx, type Track } from "./gpx";
 import {
   createTrackMeshData,
   getContinuousLongitudes,
@@ -30,6 +32,7 @@ import { findTrackPointNearRay } from "./trackHover";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
 import { getTrackHoverTolerance } from "./trackHoverLayout";
 import { findNearestScreenPointIndex } from "./trackPointFocus";
+import { createGradientCurtainMeshData, type GradientCurtainMeshData } from "./gradientCurtain";
 import { loadTerrainDem } from "./terrainDem";
 import { createTerrainMeshData } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
@@ -41,6 +44,8 @@ const fileInput = document.querySelector<HTMLInputElement>("#gpx-file");
 const viewer = document.querySelector<HTMLElement>("#viewer");
 const showRouteViewButton = document.querySelector<HTMLButtonElement>("#show-route-view");
 const showMapViewButton = document.querySelector<HTMLButtonElement>("#show-map-view");
+const terrainControl = document.querySelector<HTMLElement>("#terrain-control");
+const terrainVisibilityToggle = document.querySelector<HTMLInputElement>("#show-terrain");
 const routeViewPanel = document.querySelector<HTMLElement>("#route-view-panel");
 const terrainViewPanel = document.querySelector<HTMLElement>("#terrain-view-panel");
 const mapContainer = document.querySelector<HTMLElement>("#map-canvas");
@@ -48,13 +53,7 @@ const mapError = document.querySelector<HTMLElement>("#map-error");
 const emptyState = document.querySelector<HTMLElement>("#empty-state");
 const statusMessage = document.querySelector<HTMLElement>("#status-message");
 const engineError = document.querySelector<HTMLElement>("#engine-error");
-const routeName = document.querySelector<HTMLElement>("#route-name");
-const routeFilename = document.querySelector<HTMLElement>("#route-filename");
 const viewerRouteTitle = document.querySelector<HTMLElement>("#viewer-route-title");
-const pointCount = document.querySelector<HTMLElement>("#point-count");
-const distance = document.querySelector<HTMLElement>("#distance");
-const elevationGain = document.querySelector<HTMLElement>("#elevation-gain");
-const routeIndicator = document.querySelector<HTMLElement>("#route-indicator");
 
 if (
   canvas === null ||
@@ -62,6 +61,8 @@ if (
   viewer === null ||
   showRouteViewButton === null ||
   showMapViewButton === null ||
+  terrainControl === null ||
+  terrainVisibilityToggle === null ||
   routeViewPanel === null ||
   terrainViewPanel === null ||
   mapContainer === null ||
@@ -69,29 +70,46 @@ if (
   emptyState === null ||
   statusMessage === null ||
   engineError === null ||
-  routeName === null ||
-  routeFilename === null ||
-  viewerRouteTitle === null ||
-  pointCount === null ||
-  distance === null ||
-  elevationGain === null ||
-  routeIndicator === null
+  viewerRouteTitle === null
 ) {
   throw new Error("The route viewer page is missing required elements.");
 }
 
 const showView = (activeView: "route" | "map"): void => {
   const isRouteActive = activeView === "route";
-  showRouteViewButton.setAttribute("aria-pressed", String(isRouteActive));
-  showMapViewButton.setAttribute("aria-pressed", String(!isRouteActive));
+  showRouteViewButton.setAttribute("aria-selected", String(isRouteActive));
+  showMapViewButton.setAttribute("aria-selected", String(!isRouteActive));
+  showRouteViewButton.tabIndex = isRouteActive ? 0 : -1;
+  showMapViewButton.tabIndex = isRouteActive ? -1 : 0;
   routeViewPanel.setAttribute("aria-hidden", String(!isRouteActive));
   terrainViewPanel.setAttribute("aria-hidden", String(isRouteActive));
   routeViewPanel.inert = !isRouteActive;
   terrainViewPanel.inert = isRouteActive;
+  terrainControl.hidden = !isRouteActive;
 };
 
 showRouteViewButton.addEventListener("click", () => showView("route"));
 showMapViewButton.addEventListener("click", () => showView("map"));
+
+const viewTabs = [showRouteViewButton, showMapViewButton] as const;
+viewTabs.forEach((tab, index) => {
+  tab.addEventListener("keydown", (event: KeyboardEvent) => {
+    const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown"
+      ? (index + 1) % viewTabs.length
+      : event.key === "ArrowLeft" || event.key === "ArrowUp"
+        ? (index + viewTabs.length - 1) % viewTabs.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? viewTabs.length - 1
+            : null;
+    if (nextIndex !== null) {
+      event.preventDefault();
+      viewTabs[nextIndex].focus();
+      showView(nextIndex === 0 ? "route" : "map");
+    }
+  });
+});
 
 const setStatus = (message: string, isError = false): void => {
   statusMessage.textContent = message;
@@ -118,6 +136,31 @@ const createRoadMesh = (
   material.emissiveColor = emissiveColor;
   material.specularColor = [0.12, 0.12, 0.12];
   material.specularPower = 24;
+  mesh.material = material;
+  return mesh;
+};
+
+const createGradientCurtainMesh = (
+  engine: Awaited<ReturnType<typeof createEngine>>,
+  geometry: GradientCurtainMeshData,
+): Mesh => {
+  const mesh = createMeshFromData(
+    engine,
+    "route-gradient-curtain",
+    new Float32Array(geometry.positions),
+    new Float32Array(geometry.normals),
+    new Uint32Array(geometry.indices),
+    undefined,
+    undefined,
+    undefined,
+    new Float32Array(geometry.colors),
+  );
+  const material = createStandardMaterial();
+  material.backFaceCulling = false;
+  material.disableLighting = true;
+  material.diffuseColor = [1, 1, 1];
+  material.emissiveColor = [1, 1, 1];
+  material.alpha = 0.82;
   mesh.material = material;
   return mesh;
 };
@@ -152,6 +195,7 @@ const initializeViewer = async (): Promise<void> => {
       createEngine(canvas),
       import("./maplibreTerrain"),
     ]);
+    enableStandardVertexColors();
     const scene = createSceneContext(engine);
     const camera = createRouteCamera();
     const terrainMap = createTerrainMap(mapContainer, mapError);
@@ -301,9 +345,17 @@ const initializeViewer = async (): Promise<void> => {
     requestAnimationFrame(refreshHoverOverlay);
 
     let activeMeshes: readonly Mesh[] = [];
+    let activeLandscapeMeshes: readonly Mesh[] = [];
+    let activeGradientCurtainMeshes: readonly Mesh[] = [];
+    let terrainVisible = terrainVisibilityToggle.checked;
     let terrainRequestId = 0;
+    terrainVisibilityToggle.addEventListener("change", () => {
+      terrainVisible = terrainVisibilityToggle.checked;
+      activeLandscapeMeshes.forEach((mesh) => setMeshVisible(mesh, terrainVisible));
+      activeGradientCurtainMeshes.forEach((mesh) => setMeshVisible(mesh, !terrainVisible));
+    });
 
-    const renderTrack = (track: Track, fileName: string): void => {
+    const renderTrack = (track: Track): void => {
       terrainRequestId += 1;
       const requestId = terrainRequestId;
       const geometry = createTrackMeshData(track.points);
@@ -311,18 +363,30 @@ const initializeViewer = async (): Promise<void> => {
       activeGeometry = geometry;
       activeTrackPoints = track.points;
       terrainMap.setRoute(track.points);
-      const meshes = [
+      const gradientCurtain = createGradientCurtainMeshData(geometry);
+      const cameraBounds = Object.freeze({
+        ...geometry.bounds,
+        minY: Math.min(geometry.bounds.minY, gradientCurtain.bounds.minY),
+      });
+      const gradientCurtainMeshes = gradientCurtain.indices.length === 0
+        ? []
+        : [createGradientCurtainMesh(engine, gradientCurtain)];
+      const meshes: Mesh[] = [
         createRoadMesh(engine, "gpx-road", geometry, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
         createRoadMesh(engine, "gpx-road-left", geometry.leftSide, [0.08, 0.68, 0.16], [0.015, 0.1, 0.025]),
         createRoadMesh(engine, "gpx-road-right", geometry.rightSide, [0.78, 0.08, 0.06], [0.12, 0.015, 0.012]),
         createRoadMesh(engine, "gpx-road-surface", geometry.topSurface, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
+        ...gradientCurtainMeshes,
       ];
 
       activeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
+      activeLandscapeMeshes = [];
       meshes.forEach((mesh) => addToScene(scene, mesh));
+      gradientCurtainMeshes.forEach((mesh) => setMeshVisible(mesh, !terrainVisible));
       activeMeshes = meshes;
+      activeGradientCurtainMeshes = gradientCurtainMeshes;
       hoverOverlay.setRoute(geometry);
-      fitCameraToBounds(camera, canvas, geometry.bounds);
+      fitCameraToBounds(camera, canvas, cameraBounds);
       const fittedCamera = {
         alpha: camera.alpha,
         beta: camera.beta,
@@ -363,7 +427,11 @@ const initializeViewer = async (): Promise<void> => {
             ? []
             : [createLandscapeMesh(engine, "route-terrain-roofs", scenery.buildingRoofs, [0.38, 0.18, 0.12], [0.045, 0.014, 0.009])]),
         ];
-        landscapeMeshes.forEach((mesh) => addToScene(scene, mesh));
+        landscapeMeshes.forEach((mesh) => {
+          addToScene(scene, mesh);
+          setMeshVisible(mesh, terrainVisible);
+        });
+        activeLandscapeMeshes = landscapeMeshes;
         activeMeshes = [...activeMeshes, ...landscapeMeshes];
 
         const cameraUnchanged =
@@ -374,7 +442,10 @@ const initializeViewer = async (): Promise<void> => {
           Math.abs(camera.target.y - fittedCamera.targetY) < 1e-6 &&
           Math.abs(camera.target.z - fittedCamera.targetZ) < 1e-6;
         if (cameraUnchanged) {
-          fitCameraToBounds(camera, canvas, terrain.bounds);
+          fitCameraToBounds(camera, canvas, {
+            ...terrain.bounds,
+            minY: Math.min(terrain.bounds.minY, gradientCurtain.bounds.minY),
+          });
         }
 
         setStatus(elevationAvailable
@@ -382,15 +453,7 @@ const initializeViewer = async (): Promise<void> => {
           : "Route loaded with GPX-conformed terrain, trees, and buildings; map elevation tiles were unavailable. Drag to pan, Control-drag to orbit, or scroll to zoom.");
       })();
 
-      const summary = getTrackSummary(track.points);
-      routeName.textContent = track.name;
-      routeFilename.textContent = fileName;
-      viewerRouteTitle.textContent = track.name.toUpperCase();
-      pointCount.textContent = track.points.length.toLocaleString();
-      distance.textContent = `${summary.distanceKm.toFixed(1)} km`;
-      elevationGain.textContent = `${Math.round(summary.elevationGainMeters).toLocaleString()} m`;
-      routeIndicator.classList.add("is-loaded");
-      routeIndicator.setAttribute("aria-label", "Route loaded");
+      viewerRouteTitle.textContent = track.name;
       emptyState.hidden = true;
       setStatus("Route loaded. Fetching terrain and scenery…");
     };
@@ -399,7 +462,7 @@ const initializeViewer = async (): Promise<void> => {
       setStatus(`Reading ${file.name}…`);
 
       try {
-        renderTrack(parseGpx(await file.text()), file.name);
+        renderTrack(parseGpx(await file.text()));
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Unable to read this GPX file.", true);
       }

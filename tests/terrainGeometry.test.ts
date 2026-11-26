@@ -45,6 +45,27 @@ describe("terrain geometry", () => {
     expect(terrain.sampleHeightAt(roadCenterX, withinRoadZ)).toBeLessThan(roadBottomY);
   });
 
+  it("keeps the complete lower road segment clear when route sections pass close together", () => {
+    const geometry = createTrackMeshData([
+      { latitude: 0, longitude: -0.001, elevationMeters: 100 },
+      { latitude: 0, longitude: 0.001, elevationMeters: 100 },
+      { latitude: 0.00009, longitude: 0.001, elevationMeters: 300 },
+      { latitude: 0.00009, longitude: -0.001, elevationMeters: 300 },
+    ]);
+    const terrain = createTerrainMeshData(geometry, () => 900, 9);
+    const [start, end] = geometry.routePoints;
+    const roadDepth = 2 * geometry.projection.sceneUnitsPerMeter;
+
+    for (let step = 1; step < 20; step += 1) {
+      const progress = step / 20;
+      const x = start.x + (end.x - start.x) * progress;
+      const z = start.z + (end.z - start.z) * progress;
+      const roadBottom = start.y + (end.y - start.y) * progress - roadDepth;
+
+      expect(terrain.sampleHeightAt(x, z)).toBeLessThan(roadBottom);
+    }
+  });
+
   it("anchors the route elevation correction at the outer road edge", () => {
     const geometry = createTrackMeshData([
       { latitude: 0, longitude: 0, elevationMeters: 100 },

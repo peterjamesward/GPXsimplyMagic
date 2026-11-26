@@ -31,8 +31,14 @@ const toGeographicPoint = (x: number, z: number, geometry: TrackMeshData): Reado
 };
 
 type RouteConstraint = Readonly<{ distance: number; x: number; z: number; y: number; elevation: number }>;
+type RouteConstraints = Readonly<{ nearest: RouteConstraint; lowestNearbyRouteHeight: number | null }>;
 
-const findNearestRouteConstraint = (x: number, z: number, points: readonly TrackRoutePoint[]): RouteConstraint => {
+const findRouteConstraints = (
+  x: number,
+  z: number,
+  points: readonly TrackRoutePoint[],
+  maximumDistance: number,
+): RouteConstraints => {
   let nearest: RouteConstraint = {
     distance: Number.POSITIVE_INFINITY,
     x: points[0].x,
@@ -40,6 +46,7 @@ const findNearestRouteConstraint = (x: number, z: number, points: readonly Track
     y: points[0].y,
     elevation: points[0].altitudeMeters,
   };
+  let lowestNearbyRouteHeight = Number.POSITIVE_INFINITY;
 
   for (let index = 0; index < points.length - 1; index += 1) {
     const start = points[index];
@@ -53,19 +60,27 @@ const findNearestRouteConstraint = (x: number, z: number, points: readonly Track
     const routeX = start.x + dx * ratio;
     const routeZ = start.z + dz * ratio;
     const distance = Math.hypot(x - routeX, z - routeZ);
+    const routeHeight = start.y + (end.y - start.y) * ratio;
 
     if (distance < nearest.distance) {
       nearest = {
         distance,
         x: routeX,
         z: routeZ,
-        y: start.y + (end.y - start.y) * ratio,
+        y: routeHeight,
         elevation: start.altitudeMeters + (end.altitudeMeters - start.altitudeMeters) * ratio,
       };
     }
+
+    if (distance <= maximumDistance) {
+      lowestNearbyRouteHeight = Math.min(lowestNearbyRouteHeight, routeHeight);
+    }
   }
 
-  return nearest;
+  return {
+    nearest,
+    lowestNearbyRouteHeight: Number.isFinite(lowestNearbyRouteHeight) ? lowestNearbyRouteHeight : null,
+  };
 };
 
 export const createTerrainHeightSampler = (
@@ -79,7 +94,13 @@ export const createTerrainHeightSampler = (
   const sceneYForElevation = (elevation: number): number => 0.12 + (elevation - minimumElevation) * sceneUnitsPerMeter * 2;
 
   return (x: number, z: number): number => {
-    const constraint = findNearestRouteConstraint(x, z, route);
+    const roadClearanceRadius = geometry.roadHalfWidth / sceneUnitsPerMeter + terrainCellDiagonalMeters;
+    const { nearest: constraint, lowestNearbyRouteHeight } = findRouteConstraints(
+      x,
+      z,
+      route,
+      roadClearanceRadius * sceneUnitsPerMeter,
+    );
     const terrainLocation = toGeographicPoint(x, z, geometry);
     const routeLocation = toGeographicPoint(constraint.x, constraint.z, geometry);
     const terrainElevation = elevationAt(terrainLocation.latitude, terrainLocation.longitude) ?? constraint.elevation;
@@ -90,10 +111,9 @@ export const createTerrainHeightSampler = (
     const terrainAnchorDistanceMeters = Math.max(0, distanceMeters - geometry.roadHalfWidth / sceneUnitsPerMeter);
     const influence = Math.exp(-((terrainAnchorDistanceMeters / 90) ** 2));
     const terrainHeight = uncorrectedY + routeCorrection * influence;
-    const roadBottomY = constraint.y - 2.1 * sceneUnitsPerMeter;
-    const roadClearanceRadius = geometry.roadHalfWidth / sceneUnitsPerMeter + terrainCellDiagonalMeters;
+    const roadBottomY = (lowestNearbyRouteHeight ?? constraint.y) - 2.1 * sceneUnitsPerMeter;
 
-    if (distanceMeters <= roadClearanceRadius) {
+    if (lowestNearbyRouteHeight !== null) {
       return Math.min(terrainHeight, roadBottomY);
     }
 

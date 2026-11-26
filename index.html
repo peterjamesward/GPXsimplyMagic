@@ -14,67 +14,29 @@
           <span class="brand-mark" aria-hidden="true">↗</span>
           <span>GPX<span class="brand-light">simplyMagic</span></span>
         </a>
+        <h1 id="viewer-route-title" class="topbar-route-title">No route loaded</h1>
         <div class="topbar-right">
-          <span class="engine-label"><span class="status-dot"></span>3D ROUTE STUDIO</span>
           <label class="open-button" for="gpx-file">Open GPX <span aria-hidden="true">＋</span></label>
           <input id="gpx-file" class="visually-hidden" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" />
         </div>
       </header>
 
       <main class="workspace">
-        <section class="route-panel" aria-labelledby="route-heading">
-          <div class="panel-kicker">YOUR RIDE</div>
-          <h1 id="route-heading">Route workspace</h1>
-          <p class="panel-intro">Bring a ride to life. Open a GPX file to explore its path and elevation in 3D.</p>
-
-          <div class="route-card">
-            <div class="route-icon" aria-hidden="true">⌁</div>
-            <div class="route-info">
-              <span class="route-label">CURRENT ROUTE</span>
-              <strong id="route-name">No route loaded</strong>
-              <span id="route-filename" class="route-filename">Choose a GPX file to begin</span>
-            </div>
-            <span id="route-indicator" class="route-indicator" aria-label="No route loaded"></span>
-          </div>
-
-          <div class="stats-grid" aria-label="Route statistics">
-            <div class="stat-card">
-              <span class="stat-label">TRACK POINTS</span>
-              <strong id="point-count">—</strong>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">DISTANCE</span>
-              <strong id="distance">—<small> km</small></strong>
-            </div>
-            <div class="stat-card stat-card-wide">
-              <span class="stat-label">ELEVATION GAIN</span>
-              <strong id="elevation-gain">—<small> m</small></strong>
-            </div>
-          </div>
-
-          <div class="help-card">
-            <span class="help-icon" aria-hidden="true">i</span>
-            <div>
-              <strong>Explore your route</strong>
-              <p>Double-click a track point to center both views · drag to pan · Control-drag to rotate · scroll to zoom</p>
-            </div>
-          </div>
-
-          <p id="status-message" class="status-message" role="status" aria-live="polite">Ready when you are — open a GPX route.</p>
-          <p class="privacy-note"><span aria-hidden="true">⌑</span> GPX stays local · terrain tiles load online.</p>
-        </section>
+        <p id="status-message" class="visually-hidden" role="status" aria-live="polite">Ready when you are — open a GPX route.</p>
 
         <section class="viewer-panel" aria-label="Synchronized route and terrain views">
-          <div class="view-switch" role="group" aria-label="Choose a view">
-            <button id="show-route-view" type="button" aria-controls="route-view-panel" aria-pressed="true">3D Terrain</button>
-            <button id="show-map-view" type="button" aria-controls="terrain-view-panel" aria-pressed="false">Map + Terrain</button>
+          <div class="viewer-toolbar">
+            <div class="view-switch" role="tablist" aria-label="Choose a view">
+              <button id="show-route-view" type="button" role="tab" aria-controls="route-view-panel" aria-selected="true" tabindex="0">3D Route</button>
+              <button id="show-map-view" type="button" role="tab" aria-controls="terrain-view-panel" aria-selected="false" tabindex="-1">Map + Terrain</button>
+            </div>
+            <label id="terrain-control" class="terrain-control">
+              <input id="show-terrain" type="checkbox" role="switch" aria-label="Show procedural terrain" checked />
+              <span>Procedural terrain</span>
+            </label>
           </div>
           <div id="viewer" class="views-composite">
-            <section id="route-view-panel" class="view-panel" aria-label="Babylon 3D terrain and route view" aria-hidden="false">
-              <div class="viewer-topline">
-                <div class="viewer-title"><span class="viewer-title-dot"></span><span id="viewer-route-title">ROUTE PREVIEW</span></div>
-                <span class="viewer-mode">3D TERRAIN</span>
-              </div>
+            <section id="route-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-route-view" aria-label="Babylon 3D route view" aria-hidden="false">
               <div id="route-view" class="viewer">
                 <canvas id="route-canvas" aria-label="Interactive 3D cycling route with terrain, trees, and buildings"></canvas>
                 <div id="engine-error" class="engine-error" hidden></div>
@@ -88,11 +50,7 @@
                 <div class="viewer-footer"><span>DRAG TO PAN</span><span>CTRL-DRAG TO ORBIT</span><span>SCROLL TO ZOOM</span></div>
               </div>
             </section>
-            <section id="terrain-view-panel" class="view-panel" aria-label="MapLibre terrain view" aria-hidden="true" inert>
-              <div class="viewer-topline">
-                <div class="viewer-title"><span class="viewer-title-dot"></span><span>MAP AND TERRAIN</span></div>
-                <span class="viewer-mode">MAPLIBRE</span>
-              </div>
+            <section id="terrain-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-map-view" aria-label="MapLibre terrain view" aria-hidden="true" inert>
               <div id="map-view" class="viewer">
                 <div id="map-canvas" aria-label="Interactive terrain map synchronized with the route"></div>
                 <div id="map-error" class="engine-error map-error" role="status" hidden>Map tiles could not be loaded. Check your internet connection.</div>
