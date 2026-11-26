@@ -12,7 +12,7 @@ import {
 } from "@babylonjs/lite";
 import type { ArcRotateCamera, EngineContext, SceneContext } from "@babylonjs/lite";
 import { getCameraViewDirection, getPointerRay } from "./cameraControls";
-import { findTrackPointNearRay } from "./trackHover";
+import { createTrackPointRayIndex } from "./trackHover";
 import type { TrackMeshData, TrackRoutePoint } from "./trackGeometry";
 import { createTrackHoverCard } from "./trackHoverCard";
 import { getTrackHoverLayout, getTrackHoverTolerance } from "./trackHoverLayout";
@@ -49,6 +49,7 @@ export const createTrackHoverOverlay = (
   setMeshVisible(leader, false);
 
   let route: TrackMeshData | null = null;
+  let findPointNearRay = createTrackPointRayIndex([]);
   let lastPointNumber: number | null = null;
   let activePoint: TrackRoutePoint | null = null;
   let visible = false;
@@ -64,6 +65,7 @@ export const createTrackHoverOverlay = (
 
   const setRoute = (geometry: TrackMeshData | null): void => {
     route = geometry;
+    findPointNearRay = createTrackPointRayIndex(geometry?.routePoints ?? []);
     lastPointNumber = null;
     hide();
   };
@@ -209,7 +211,7 @@ export const createTrackHoverOverlay = (
           direction: { x: pickingRay.direction[0], y: pickingRay.direction[1], z: pickingRay.direction[2] },
         };
     const tolerance = getTrackHoverTolerance(route.roadHalfWidth, camera.radius, camera.fov, bounds.height);
-    const point = ray === null ? null : findTrackPointNearRay(ray, route.routePoints, tolerance);
+    const point = ray === null ? null : findPointNearRay(ray, tolerance);
     if (point === null) {
       hide();
       return;

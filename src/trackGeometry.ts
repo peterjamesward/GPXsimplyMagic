@@ -45,17 +45,19 @@ type MutableTrackMeshPart = { positions: number[]; normals: number[]; indices: n
 
 const createMutableMeshPart = (): MutableTrackMeshPart => ({ positions: [], normals: [], indices: [] });
 
-export const getContinuousLongitudes = (points: readonly TrackPoint[]): readonly number[] => Object.freeze(
-  points.reduce((longitudes, point, index) => {
-    if (index === 0) {
-      return [...longitudes, point.longitude];
-    }
+export const getContinuousLongitudes = (points: readonly TrackPoint[]): readonly number[] => {
+  const longitudes = new Array<number>(points.length);
+  if (points.length > 0) {
+    longitudes[0] = points[0].longitude;
+  }
 
-    const previousPoint = points[index - 1];
-    const longitudeDelta = ((point.longitude - previousPoint.longitude + 540) % 360) - 180;
-    return [...longitudes, longitudes[index - 1] + longitudeDelta];
-  }, [] as number[]),
-);
+  for (let index = 1; index < points.length; index += 1) {
+    const longitudeDelta = ((points[index].longitude - points[index - 1].longitude + 540) % 360) - 180;
+    longitudes[index] = longitudes[index - 1] + longitudeDelta;
+  }
+
+  return Object.freeze(longitudes);
+};
 
 const freezeMeshPart = (part: MutableTrackMeshPart): TrackMeshPart => Object.freeze({
   positions: Object.freeze(part.positions),

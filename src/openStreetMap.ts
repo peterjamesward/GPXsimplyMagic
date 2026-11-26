@@ -390,3 +390,125 @@ export const canPlaceProceduralTreeAt = (x: number, z: number, areas: readonly O
   }
   return selectedArea === null || selectedArea.treesAllowed;
 };
+
+export type LandUseSpatialIndex = Readonly<{
+  getCategoryAt: (x: number, z: number) => LandUseCategory | null;
+  getColorAt: (x: number, z: number) => MapColor | null;
+  canPlaceTreeAt: (x: number, z: number) => boolean;
+}>;
+
+type IndexedArea = Readonly<{
+  index: number;
+  area: OpenStreetMapArea;
+  centerX: number;
+  centerZ: number;
+}>;
+type AreaIndexBounds = Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number; maximumPriority: number }>;
+type AreaIndexLeaf = Readonly<AreaIndexBounds & { areas: readonly IndexedArea[] }>;
+type AreaIndexBranch = Readonly<AreaIndexBounds & { left: AreaIndexNode; right: AreaIndexNode }>;
+type AreaIndexNode = AreaIndexLeaf | AreaIndexBranch;
+type SelectedArea = Readonly<{ area: OpenStreetMapArea; index: number; priority: number }>;
+
+const areaLeafSize = 8;
+
+const getAreaIndexBounds = (areas: readonly IndexedArea[]): AreaIndexBounds => areas.reduce(
+  (bounds, { area }) => ({
+    minX: Math.min(bounds.minX, area.bounds.minX),
+    maxX: Math.max(bounds.maxX, area.bounds.maxX),
+    minZ: Math.min(bounds.minZ, area.bounds.minZ),
+    maxZ: Math.max(bounds.maxZ, area.bounds.maxZ),
+    maximumPriority: Math.max(bounds.maximumPriority, landUseStyles[area.category].priority),
+  }),
+  {
+    minX: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+    maximumPriority: Number.NEGATIVE_INFINITY,
+  },
+);
+
+const buildAreaIndex = (areas: readonly IndexedArea[]): AreaIndexNode => {
+  const bounds = getAreaIndexBounds(areas);
+  if (areas.length <= areaLeafSize) {
+    return Object.freeze({ ...bounds, areas: Object.freeze([...areas]) });
+  }
+
+  const splitOnX = bounds.maxX - bounds.minX >= bounds.maxZ - bounds.minZ;
+  const orderedAreas = [...areas].sort((left, right) => {
+    const difference = splitOnX ? left.centerX - right.centerX : left.centerZ - right.centerZ;
+    return difference || left.index - right.index;
+  });
+  const middle = Math.floor(orderedAreas.length / 2);
+
+  return Object.freeze({
+    ...bounds,
+    left: buildAreaIndex(orderedAreas.slice(0, middle)),
+    right: buildAreaIndex(orderedAreas.slice(middle)),
+  });
+};
+
+const isInsideBounds = (
+  x: number,
+  z: number,
+  bounds: Pick<AreaIndexBounds, "minX" | "maxX" | "minZ" | "maxZ">,
+): boolean =>
+  x >= bounds.minX && x <= bounds.maxX && z >= bounds.minZ && z <= bounds.maxZ;
+
+export const createLandUseSpatialIndex = (areas: readonly OpenStreetMapArea[]): LandUseSpatialIndex => {
+  const indexedAreas = areas.map((area, index): IndexedArea => Object.freeze({
+    index,
+    area,
+    centerX: (area.bounds.minX + area.bounds.maxX) / 2,
+    centerZ: (area.bounds.minZ + area.bounds.maxZ) / 2,
+  }));
+  const root = indexedAreas.length === 0 ? null : buildAreaIndex(indexedAreas);
+
+  const getSelectedAreaAt = (x: number, z: number): SelectedArea | null => {
+    if (root === null || !Number.isFinite(x) || !Number.isFinite(z)) {
+      return null;
+    }
+
+    let selected: SelectedArea | null = null;
+    const visit = (node: AreaIndexNode): void => {
+      if (
+        !isInsideBounds(x, z, node) ||
+        (selected !== null && node.maximumPriority < selected.priority)
+      ) {
+        return;
+      }
+
+      if ("areas" in node) {
+        for (const { area, index } of node.areas) {
+          const priority = landUseStyles[area.category].priority;
+          if (
+            priority > (selected?.priority ?? Number.NEGATIVE_INFINITY) ||
+            (priority === selected?.priority && index < (selected?.index ?? Number.POSITIVE_INFINITY))
+          ) {
+            if (isInsideBounds(x, z, area.bounds) && isPointInPolygon(x, z, area.points)) {
+              selected = { area, index, priority };
+            }
+          }
+        }
+        return;
+      }
+
+      const first = node.left.maximumPriority >= node.right.maximumPriority ? node.left : node.right;
+      const second = first === node.left ? node.right : node.left;
+      visit(first);
+      visit(second);
+    };
+
+    visit(root);
+    return selected;
+  };
+
+  return Object.freeze({
+    getCategoryAt: (x, z) => getSelectedAreaAt(x, z)?.area.category ?? null,
+    getColorAt: (x, z) => {
+      const category = getSelectedAreaAt(x, z)?.area.category;
+      return category === undefined ? null : landUseStyles[category].color;
+    },
+    canPlaceTreeAt: (x, z) => getSelectedAreaAt(x, z)?.area.treesAllowed ?? true,
+  });
+};

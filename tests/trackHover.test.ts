@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTrackMeshData } from "../src/trackGeometry";
-import { findTrackPointNearRay } from "../src/trackHover";
+import { createTrackPointRayIndex, findTrackPointNearRay } from "../src/trackHover";
 
 const geometry = createTrackMeshData([
   { latitude: 0, longitude: 0, elevationMeters: 100 },
@@ -51,5 +51,32 @@ describe("findTrackPointNearRay", () => {
     expect(geometry.routePoints[2].gradientPercent).toBeNull();
     expect(Object.isFrozen(geometry.routePoints)).toBe(true);
     expect(geometry.routePoints.every(Object.isFrozen)).toBe(true);
+  });
+
+  it("matches exhaustive picking for indexed route segments", () => {
+    const points = Array.from({ length: 400 }, (_value, index) => ({
+      x: (index % 40) * 0.6 + Math.sin(index * 0.31) * 0.12,
+      y: Math.sin(index * 0.17) * 1.5,
+      z: Math.floor(index / 40) * 0.7 + Math.cos(index * 0.23) * 0.1,
+      pointNumber: index + 1,
+      distanceMeters: index * 2,
+      gradientPercent: null,
+      altitudeMeters: 100 + index * 0.1,
+    }));
+    const findIndexedPoint = createTrackPointRayIndex(points);
+    let seed = 37;
+    const random = (): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+
+    for (let query = 0; query < 120; query += 1) {
+      const ray = {
+        origin: { x: random() * 25, y: 8, z: random() * 7 },
+        direction: { x: (random() - 0.5) * 0.3, y: -1, z: (random() - 0.5) * 0.3 },
+      };
+
+      expect(findIndexedPoint(ray, 0.8)).toBe(findTrackPointNearRay(ray, points, 0.8));
+    }
   });
 });

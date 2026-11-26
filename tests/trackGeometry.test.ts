@@ -149,6 +149,18 @@ describe("createTrackMeshData", () => {
     ])).toEqual([-179, -181]);
   });
 
+  it("unwraps long routes in a single immutable longitude array", () => {
+    const longitudes = getContinuousLongitudes(Array.from({ length: 20_000 }, (_value, index) => ({
+      latitude: 0,
+      longitude: index / 1_000,
+      elevationMeters: 0,
+    })));
+
+    expect(longitudes).toHaveLength(20_000);
+    expect(longitudes[19_999]).toBeCloseTo(19.999);
+    expect(Object.isFrozen(longitudes)).toBe(true);
+  });
+
   it("rejects routes that cannot form a mesh", () => {
     expect(() => createTrackMeshData(samplePoints.slice(0, 1))).toThrow("At least two");
   });
