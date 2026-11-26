@@ -76,7 +76,7 @@ describe("OpenStreetMap route features", () => {
     const body = options.body as URLSearchParams;
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(url).toBe("https://overpass-api.de/api/interpreter");
+    expect(url).toBe("https://overpass.nextgis.com/my-IllGcn5yk6k3nwxLVeFWw1CRGLt6SD54/api/interpreter");
     expect(options.method).toBe("POST");
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect((options.signal as AbortSignal).aborted).toBe(true);

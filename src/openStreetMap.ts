@@ -33,7 +33,7 @@ type RawElement = Readonly<{
 }>;
 type LandUseStyle = Readonly<{ color: MapColor; priority: number }>;
 
-const overpassEndpoint = "https://overpass-api.de/api/interpreter";
+const overpassEndpoint = "https://overpass.nextgis.com/my-IllGcn5yk6k3nwxLVeFWw1CRGLt6SD54/api/interpreter";
 const maximumLatitude = 85.05112878;
 const requestTimeoutMilliseconds = 20_000;
 const defaultWallColor: MapColor = Object.freeze([0.68, 0.59, 0.44]);
