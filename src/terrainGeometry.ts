@@ -1,6 +1,8 @@
-import type { TrackMeshPart, TrackRoutePoint, TrackBounds, TrackMeshData } from "./trackGeometry";
+import type { TrackMeshPart, TrackBounds, TrackMeshData } from "./trackGeometry";
+import { createRouteConstraintIndex } from "./routeConstraints";
 
 export type TerrainElevationSampler = (latitude: number, longitude: number) => number | null;
+export type TerrainColorSampler = (x: number, z: number) => readonly [number, number, number];
 
 export type TerrainMeshData = TrackMeshPart & Readonly<{
   bounds: TrackBounds;
@@ -10,7 +12,7 @@ export type TerrainMeshData = TrackMeshPart & Readonly<{
 }>;
 
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
-type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[] };
+type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[]; colors?: number[] };
 type TerrainAreaBounds = Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
 
 const createMutableMeshPart = (): MutableMeshPart => ({ positions: [], normals: [], indices: [] });
@@ -30,65 +32,13 @@ const toGeographicPoint = (x: number, z: number, geometry: TrackMeshData): Reado
   };
 };
 
-type RouteConstraint = Readonly<{ distance: number; x: number; z: number; y: number; elevation: number }>;
-type RouteConstraints = Readonly<{ nearest: RouteConstraint; lowestNearbyRouteHeight: number | null }>;
-
-const findRouteConstraints = (
-  x: number,
-  z: number,
-  points: readonly TrackRoutePoint[],
-  maximumDistance: number,
-): RouteConstraints => {
-  let nearest: RouteConstraint = {
-    distance: Number.POSITIVE_INFINITY,
-    x: points[0].x,
-    z: points[0].z,
-    y: points[0].y,
-    elevation: points[0].altitudeMeters,
-  };
-  let lowestNearbyRouteHeight = Number.POSITIVE_INFINITY;
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const start = points[index];
-    const end = points[index + 1];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const lengthSquared = dx * dx + dz * dz;
-    const ratio = lengthSquared === 0
-      ? 0
-      : Math.max(0, Math.min(1, ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared));
-    const routeX = start.x + dx * ratio;
-    const routeZ = start.z + dz * ratio;
-    const distance = Math.hypot(x - routeX, z - routeZ);
-    const routeHeight = start.y + (end.y - start.y) * ratio;
-
-    if (distance < nearest.distance) {
-      nearest = {
-        distance,
-        x: routeX,
-        z: routeZ,
-        y: routeHeight,
-        elevation: start.altitudeMeters + (end.altitudeMeters - start.altitudeMeters) * ratio,
-      };
-    }
-
-    if (distance <= maximumDistance) {
-      lowestNearbyRouteHeight = Math.min(lowestNearbyRouteHeight, routeHeight);
-    }
-  }
-
-  return {
-    nearest,
-    lowestNearbyRouteHeight: Number.isFinite(lowestNearbyRouteHeight) ? lowestNearbyRouteHeight : null,
-  };
-};
-
 export const createTerrainHeightSampler = (
   geometry: TrackMeshData,
   elevationAt: TerrainElevationSampler,
   terrainCellDiagonalMeters = 0,
 ): ((x: number, z: number) => number) => {
   const route = geometry.routePoints;
+  const findRouteConstraints = createRouteConstraintIndex(route);
   const minimumElevation = route.reduce((minimum, point) => Math.min(minimum, point.altitudeMeters), Number.POSITIVE_INFINITY);
   const sceneUnitsPerMeter = geometry.projection.sceneUnitsPerMeter;
   const sceneYForElevation = (elevation: number): number => 0.12 + (elevation - minimumElevation) * sceneUnitsPerMeter * 2;
@@ -98,7 +48,6 @@ export const createTerrainHeightSampler = (
     const { nearest: constraint, lowestNearbyRouteHeight } = findRouteConstraints(
       x,
       z,
-      route,
       roadClearanceRadius * sceneUnitsPerMeter,
     );
     const terrainLocation = toGeographicPoint(x, z, geometry);
@@ -150,6 +99,7 @@ export const createTerrainMeshData = (
   geometry: TrackMeshData,
   elevationAt: TerrainElevationSampler,
   requestedGridSize = 65,
+  colorAt?: TerrainColorSampler,
 ): TerrainMeshData => {
   const gridSize = Math.max(9, Math.min(129, Math.round(requestedGridSize)));
   const area = getTerrainAreaBounds(geometry);
@@ -170,6 +120,9 @@ export const createTerrainMeshData = (
     return sampleHeight(x, z);
   });
   const mesh = createMutableMeshPart();
+  if (colorAt !== undefined) {
+    mesh.colors = [];
+  }
   const getHeight = (column: number, row: number): number => heights[row * columns + column];
 
   for (let row = 0; row < rows; row += 1) {
@@ -185,6 +138,7 @@ export const createTerrainMeshData = (
       const z = area.minZ + stepZ * row;
       mesh.positions.push(x, getHeight(column, row), z);
       mesh.normals.push(normal.x, normal.y, normal.z);
+      mesh.colors?.push(...(colorAt?.(x, z) ?? [0.3, 0.4, 0.24]), 1);
     }
   }
 
@@ -240,6 +194,7 @@ export const createTerrainMeshData = (
     positions: Object.freeze(mesh.positions),
     normals: Object.freeze(mesh.normals),
     indices: Object.freeze(mesh.indices),
+    ...(mesh.colors === undefined ? {} : { colors: Object.freeze(mesh.colors) }),
     bounds: Object.freeze(bounds),
     columns,
     rows,

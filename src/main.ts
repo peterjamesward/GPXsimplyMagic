@@ -28,6 +28,12 @@ import {
   type TrackMeshPart,
   type TrackProjection,
 } from "./trackGeometry";
+import {
+  emptyOpenStreetMapFeatures,
+  getLandUseColorAt,
+  loadOpenStreetMapFeatures,
+  type OpenStreetMapFeatures,
+} from "./openStreetMap";
 import { findTrackPointNearRay } from "./trackHover";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
 import { getTrackHoverTolerance } from "./trackHoverLayout";
@@ -178,11 +184,16 @@ const createLandscapeMesh = (
     new Float32Array(geometry.positions),
     new Float32Array(geometry.normals),
     new Uint32Array(geometry.indices),
+    undefined,
+    undefined,
+    undefined,
+    geometry.colors === undefined ? undefined : new Float32Array(geometry.colors),
   );
   const material = createStandardMaterial();
   material.backFaceCulling = false;
-  material.diffuseColor = diffuseColor;
-  material.emissiveColor = emissiveColor;
+  material.disableLighting = geometry.colors !== undefined;
+  material.diffuseColor = geometry.colors === undefined ? diffuseColor : [1, 1, 1];
+  material.emissiveColor = geometry.colors === undefined ? emissiveColor : [1, 1, 1];
   material.specularColor = [0.08, 0.08, 0.08];
   material.specularPower = 12;
   mesh.material = material;
@@ -349,6 +360,7 @@ const initializeViewer = async (): Promise<void> => {
     let activeGradientCurtainMeshes: readonly Mesh[] = [];
     let terrainVisible = terrainVisibilityToggle.checked;
     let terrainRequestId = 0;
+    let terrainRequestController: AbortController | null = null;
     terrainVisibilityToggle.addEventListener("change", () => {
       terrainVisible = terrainVisibilityToggle.checked;
       activeLandscapeMeshes.forEach((mesh) => setMeshVisible(mesh, terrainVisible));
@@ -356,8 +368,11 @@ const initializeViewer = async (): Promise<void> => {
     });
 
     const renderTrack = (track: Track): void => {
+      terrainRequestController?.abort();
       terrainRequestId += 1;
       const requestId = terrainRequestId;
+      const requestController = new AbortController();
+      terrainRequestController = requestController;
       const geometry = createTrackMeshData(track.points);
       trackProjection = geometry.projection;
       activeGeometry = geometry;
@@ -397,21 +412,26 @@ const initializeViewer = async (): Promise<void> => {
       };
 
       void (async () => {
-        let elevationAvailable = true;
-        let elevationAt: (latitude: number, longitude: number) => number | null;
-        try {
-          elevationAt = await loadTerrainDem(geometry);
-        } catch {
-          elevationAvailable = false;
-          elevationAt = () => null;
-        }
+        const [elevationResult, openStreetMapResult] = await Promise.allSettled([
+          loadTerrainDem(geometry),
+          loadOpenStreetMapFeatures(geometry, requestController.signal),
+        ]);
 
         if (requestId !== terrainRequestId) {
           return;
         }
 
-        const terrain = createTerrainMeshData(geometry, elevationAt);
-        const scenery = createTerrainScenery(terrain, geometry);
+        const elevationAvailable = elevationResult.status === "fulfilled";
+        const elevationAt = elevationAvailable ? elevationResult.value : () => null;
+        const openStreetMapAvailable = openStreetMapResult.status === "fulfilled";
+        const openStreetMapFeatures: OpenStreetMapFeatures = openStreetMapAvailable
+          ? openStreetMapResult.value
+          : emptyOpenStreetMapFeatures;
+        const terrainColorAt = openStreetMapFeatures.areas.length === 0
+          ? undefined
+          : (x: number, z: number) => getLandUseColorAt(x, z, openStreetMapFeatures.areas) ?? [0.3, 0.4, 0.24] as const;
+        const terrain = createTerrainMeshData(geometry, elevationAt, 65, terrainColorAt);
+        const scenery = createTerrainScenery(terrain, geometry, undefined, openStreetMapFeatures);
         const landscapeMeshes = [
           createLandscapeMesh(engine, "route-terrain-ground", terrain, [0.3, 0.4, 0.24], [0.035, 0.05, 0.025]),
           ...(scenery.foliage.positions.length === 0
@@ -448,14 +468,21 @@ const initializeViewer = async (): Promise<void> => {
           });
         }
 
-        setStatus(elevationAvailable
-          ? "Route loaded with map-tile terrain, trees, and buildings. Drag to pan, Control-drag to orbit, or scroll to zoom."
-          : "Route loaded with GPX-conformed terrain, trees, and buildings; map elevation tiles were unavailable. Drag to pan, Control-drag to orbit, or scroll to zoom.");
+        const elevationStatus = elevationAvailable ? "map-tile elevation" : "GPX-conformed terrain; elevation tiles unavailable";
+        const landUseStatus = openStreetMapFeatures.areas.length > 0
+          ? "OpenStreetMap land-use styles"
+          : openStreetMapAvailable
+            ? "no mapped OpenStreetMap land-use here"
+            : "OpenStreetMap data unavailable";
+        const buildingStatus = openStreetMapFeatures.buildings.length > 0
+          ? `${openStreetMapFeatures.buildings.length} mapped buildings`
+          : "procedural buildings";
+        setStatus(`Route loaded with ${elevationStatus}, ${landUseStatus}, and ${buildingStatus}. Drag to pan, Control-drag to orbit, or scroll to zoom.`);
       })();
 
       viewerRouteTitle.textContent = track.name;
       emptyState.hidden = true;
-      setStatus("Route loaded. Fetching terrain and scenery…");
+      setStatus("Route loaded. Fetching elevation tiles and OpenStreetMap land-use/building data…");
     };
 
     const openFile = async (file: File): Promise<void> => {

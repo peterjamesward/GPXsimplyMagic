@@ -4,6 +4,7 @@ export type TrackMeshPart = Readonly<{
   positions: readonly number[];
   normals: readonly number[];
   indices: readonly number[];
+  colors?: readonly number[];
 }>;
 
 export type TrackBounds = Readonly<{
