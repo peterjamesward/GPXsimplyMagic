@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101619" />
+    <meta name="description" content="Open and explore cycling GPX tracks in 3D." />
+    <title>GPX Simply Magic — Route Studio</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="GPX Simply Magic home">
+          <span class="brand-mark" aria-hidden="true">↗</span>
+          <span>GPX<span class="brand-light">simplyMagic</span></span>
+        </a>
+        <div class="topbar-right">
+          <span class="engine-label"><span class="status-dot"></span>3D ROUTE STUDIO</span>
+          <label class="open-button" for="gpx-file">Open GPX <span aria-hidden="true">＋</span></label>
+          <input id="gpx-file" class="visually-hidden" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" />
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="route-panel" aria-labelledby="route-heading">
+          <div class="panel-kicker">YOUR RIDE</div>
+          <h1 id="route-heading">Route workspace</h1>
+          <p class="panel-intro">Bring a ride to life. Open a GPX file to explore its path and elevation in 3D.</p>
+
+          <div class="route-card">
+            <div class="route-icon" aria-hidden="true">⌁</div>
+            <div class="route-info">
+              <span class="route-label">CURRENT ROUTE</span>
+              <strong id="route-name">No route loaded</strong>
+              <span id="route-filename" class="route-filename">Choose a GPX file to begin</span>
+            </div>
+            <span id="route-indicator" class="route-indicator" aria-label="No route loaded"></span>
+          </div>
+
+          <div class="stats-grid" aria-label="Route statistics">
+            <div class="stat-card">
+              <span class="stat-label">TRACK POINTS</span>
+              <strong id="point-count">—</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">DISTANCE</span>
+              <strong id="distance">—<small> km</small></strong>
+            </div>
+            <div class="stat-card stat-card-wide">
+              <span class="stat-label">ELEVATION GAIN</span>
+              <strong id="elevation-gain">—<small> m</small></strong>
+            </div>
+          </div>
+
+          <div class="help-card">
+            <span class="help-icon" aria-hidden="true">i</span>
+            <div>
+              <strong>Explore your route</strong>
+              <p>Drag to rotate · right-drag to pan · scroll to zoom</p>
+            </div>
+          </div>
+
+          <p id="status-message" class="status-message" role="status" aria-live="polite">Ready when you are — open a GPX route.</p>
+          <p class="privacy-note"><span aria-hidden="true">⌑</span> Your route stays on this device.</p>
+        </section>
+
+        <section class="viewer-panel" aria-label="3D route viewer">
+          <div class="viewer-topline">
+            <div class="viewer-title"><span class="viewer-title-dot"></span><span id="viewer-route-title">ROUTE PREVIEW</span></div>
+            <span class="viewer-mode">3D VIEW</span>
+          </div>
+          <div id="viewer" class="viewer">
+            <canvas id="route-canvas" aria-label="Interactive 3D cycling route"></canvas>
+            <div id="engine-error" class="engine-error" hidden></div>
+            <div id="empty-state" class="empty-state">
+              <div class="empty-orbit" aria-hidden="true"><span>↗</span></div>
+              <h2>Your next ride, in a new perspective.</h2>
+              <p>Drop a GPX file here or choose one to see your route take shape.</p>
+              <label class="empty-button" for="gpx-file">Choose a GPX file <span aria-hidden="true">→</span></label>
+              <span class="file-hint">GPX files · Stored locally in your browser</span>
+            </div>
+            <div class="viewer-footer"><span>DRAG TO ORBIT</span><span>SCROLL TO ZOOM</span><span>RIGHT-DRAG TO PAN</span></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
