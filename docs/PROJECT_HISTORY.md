@@ -46,4 +46,7 @@ This document preserves the project's conversation-driven narrative: the request
 
 24. **Center both views on a double-clicked track point.** Double-clicking a route point in the 3D view or terrain map centers the shared camera state on that point, preserving the current zoom and orientation; map clicks use a screen-space proximity check so double-clicking elsewhere retains normal map behavior.
 
+25. **Render a terrain landscape around the known route.** The Babylon view now samples AWS Terrarium elevation tiles, smoothly constrains terrain heights to the GPX route profile, and adds deterministic low-poly foliage and buildings. The terrain and scenery are generated locally in the browser; procedural buildings and trees are illustrative rather than surveyed map data, and unavailable DEM tiles fall back to GPX-derived terrain.
+26. **Anchor terrain correction at the road edges.** Terrain elevation correction now measures its influence from the outer edge of the road rather than the route centerline, so surrounding terrain transitions from the road boundary. Regression coverage verifies the edge-based anchor while retaining clearance beneath the road.
+
 The recorded test and build results for the changes above are in their corresponding conversation summaries; this history file itself is documentation and does not change application behavior.

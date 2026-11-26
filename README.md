@@ -11,9 +11,9 @@ npm run dev
 
 Open the URL printed by Vite (usually `http://localhost:5173`). Do not open `index.html` through the IDE preview server (for example, `localhost:63342`): it serves `src/main.ts` as a static file instead of transforming it into a JavaScript module.
 
-Use a WebGPU-enabled browser. Open a `.gpx` file with the button or drop one onto the viewer; each loaded route is automatically centered and fitted to the view. The side-by-side Babylon 3D route and MapLibre terrain views synchronize their center, bearing, pitch, and approximate zoom, and can both control the camera. Double-click a track point in either view to center both views on it. Hover near the road to see the trackpoint number, distance from the start, gradient, and altitude. On the 3D route, drag to pan, Control-drag to orbit, and scroll to zoom toward the pointer.
+Use a WebGPU-enabled browser. Open a `.gpx` file with the button or drop one onto the viewer; each loaded route is automatically centered and fitted to the view. Switch between the Babylon 3D landscape and MapLibre terrain map in the shared viewport; their center, bearing, pitch, and approximate zoom are synchronized. The 3D landscape builds a local terrain mesh from elevation tiles, corrects the surface to the recorded GPX elevations along the route, and adds deterministic low-poly trees and houses. These trees and buildings are illustrative procedural scenery, not surveyed map features. Double-click a track point in either view to center both views on it. Hover near the road to see the trackpoint number, distance from the start, gradient, and altitude. On the 3D view, drag to pan, Control-drag to orbit, and scroll to zoom toward the pointer.
 
-The GPX file is parsed locally and is not uploaded. The terrain panel requires an internet connection: its detailed basemap uses OpenFreeMap's Liberty style and its global elevation data uses AWS Terrain Tiles (Mapzen; source data varies by region). Normal tile requests reveal the viewed geographic area to these services.
+The GPX file is parsed locally and is not uploaded. Both 3D terrain and the MapLibre view require internet access for AWS Terrain Tiles (Mapzen; source data varies by region); the map's detailed basemap uses OpenFreeMap's Liberty style. Tile requests reveal the viewed geographic area to these services.
 
 ## Project history
 

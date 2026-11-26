@@ -30,6 +30,9 @@ import { findTrackPointNearRay } from "./trackHover";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
 import { getTrackHoverTolerance } from "./trackHoverLayout";
 import { findNearestScreenPointIndex } from "./trackPointFocus";
+import { loadTerrainDem } from "./terrainDem";
+import { createTerrainMeshData } from "./terrainGeometry";
+import { createTerrainScenery } from "./terrainScenery";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
 
@@ -115,6 +118,30 @@ const createRoadMesh = (
   material.emissiveColor = emissiveColor;
   material.specularColor = [0.12, 0.12, 0.12];
   material.specularPower = 24;
+  mesh.material = material;
+  return mesh;
+};
+
+const createLandscapeMesh = (
+  engine: Awaited<ReturnType<typeof createEngine>>,
+  name: string,
+  geometry: TrackMeshPart,
+  diffuseColor: [number, number, number],
+  emissiveColor: [number, number, number],
+): Mesh => {
+  const mesh = createMeshFromData(
+    engine,
+    name,
+    new Float32Array(geometry.positions),
+    new Float32Array(geometry.normals),
+    new Uint32Array(geometry.indices),
+  );
+  const material = createStandardMaterial();
+  material.backFaceCulling = false;
+  material.diffuseColor = diffuseColor;
+  material.emissiveColor = emissiveColor;
+  material.specularColor = [0.08, 0.08, 0.08];
+  material.specularPower = 12;
   mesh.material = material;
   return mesh;
 };
@@ -274,8 +301,11 @@ const initializeViewer = async (): Promise<void> => {
     requestAnimationFrame(refreshHoverOverlay);
 
     let activeMeshes: readonly Mesh[] = [];
+    let terrainRequestId = 0;
 
     const renderTrack = (track: Track, fileName: string): void => {
+      terrainRequestId += 1;
+      const requestId = terrainRequestId;
       const geometry = createTrackMeshData(track.points);
       trackProjection = geometry.projection;
       activeGeometry = geometry;
@@ -293,6 +323,64 @@ const initializeViewer = async (): Promise<void> => {
       activeMeshes = meshes;
       hoverOverlay.setRoute(geometry);
       fitCameraToBounds(camera, canvas, geometry.bounds);
+      const fittedCamera = {
+        alpha: camera.alpha,
+        beta: camera.beta,
+        radius: camera.radius,
+        targetX: camera.target.x,
+        targetY: camera.target.y,
+        targetZ: camera.target.z,
+      };
+
+      void (async () => {
+        let elevationAvailable = true;
+        let elevationAt: (latitude: number, longitude: number) => number | null;
+        try {
+          elevationAt = await loadTerrainDem(geometry);
+        } catch {
+          elevationAvailable = false;
+          elevationAt = () => null;
+        }
+
+        if (requestId !== terrainRequestId) {
+          return;
+        }
+
+        const terrain = createTerrainMeshData(geometry, elevationAt);
+        const scenery = createTerrainScenery(terrain, geometry);
+        const landscapeMeshes = [
+          createLandscapeMesh(engine, "route-terrain-ground", terrain, [0.3, 0.4, 0.24], [0.035, 0.05, 0.025]),
+          ...(scenery.foliage.positions.length === 0
+            ? []
+            : [createLandscapeMesh(engine, "route-terrain-foliage", scenery.foliage, [0.08, 0.27, 0.1], [0.01, 0.04, 0.015])]),
+          ...(scenery.trunks.positions.length === 0
+            ? []
+            : [createLandscapeMesh(engine, "route-terrain-trunks", scenery.trunks, [0.28, 0.16, 0.09], [0.025, 0.012, 0.006])]),
+          ...(scenery.buildingWalls.positions.length === 0
+            ? []
+            : [createLandscapeMesh(engine, "route-terrain-buildings", scenery.buildingWalls, [0.68, 0.59, 0.44], [0.06, 0.045, 0.026])]),
+          ...(scenery.buildingRoofs.positions.length === 0
+            ? []
+            : [createLandscapeMesh(engine, "route-terrain-roofs", scenery.buildingRoofs, [0.38, 0.18, 0.12], [0.045, 0.014, 0.009])]),
+        ];
+        landscapeMeshes.forEach((mesh) => addToScene(scene, mesh));
+        activeMeshes = [...activeMeshes, ...landscapeMeshes];
+
+        const cameraUnchanged =
+          Math.abs(camera.alpha - fittedCamera.alpha) < 1e-6 &&
+          Math.abs(camera.beta - fittedCamera.beta) < 1e-6 &&
+          Math.abs(camera.radius - fittedCamera.radius) < 1e-6 &&
+          Math.abs(camera.target.x - fittedCamera.targetX) < 1e-6 &&
+          Math.abs(camera.target.y - fittedCamera.targetY) < 1e-6 &&
+          Math.abs(camera.target.z - fittedCamera.targetZ) < 1e-6;
+        if (cameraUnchanged) {
+          fitCameraToBounds(camera, canvas, terrain.bounds);
+        }
+
+        setStatus(elevationAvailable
+          ? "Route loaded with map-tile terrain, trees, and buildings. Drag to pan, Control-drag to orbit, or scroll to zoom."
+          : "Route loaded with GPX-conformed terrain, trees, and buildings; map elevation tiles were unavailable. Drag to pan, Control-drag to orbit, or scroll to zoom.");
+      })();
 
       const summary = getTrackSummary(track.points);
       routeName.textContent = track.name;
@@ -304,7 +392,7 @@ const initializeViewer = async (): Promise<void> => {
       routeIndicator.classList.add("is-loaded");
       routeIndicator.setAttribute("aria-label", "Route loaded");
       emptyState.hidden = true;
-      setStatus("Route loaded. Drag the track or background to pan, Control-drag to orbit around the road at the center, or scroll to zoom.");
+      setStatus("Route loaded. Fetching terrain and scenery…");
     };
 
     const openFile = async (file: File): Promise<void> => {

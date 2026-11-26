@@ -66,17 +66,17 @@
 
         <section class="viewer-panel" aria-label="Synchronized route and terrain views">
           <div class="view-switch" role="group" aria-label="Choose a view">
-            <button id="show-route-view" type="button" aria-controls="route-view-panel" aria-pressed="true">3D Route</button>
+            <button id="show-route-view" type="button" aria-controls="route-view-panel" aria-pressed="true">3D Terrain</button>
             <button id="show-map-view" type="button" aria-controls="terrain-view-panel" aria-pressed="false">Map + Terrain</button>
           </div>
           <div id="viewer" class="views-composite">
-            <section id="route-view-panel" class="view-panel" aria-label="3D route view" aria-hidden="false">
+            <section id="route-view-panel" class="view-panel" aria-label="Babylon 3D terrain and route view" aria-hidden="false">
               <div class="viewer-topline">
                 <div class="viewer-title"><span class="viewer-title-dot"></span><span id="viewer-route-title">ROUTE PREVIEW</span></div>
-                <span class="viewer-mode">3D ROUTE</span>
+                <span class="viewer-mode">3D TERRAIN</span>
               </div>
               <div id="route-view" class="viewer">
-                <canvas id="route-canvas" aria-label="Interactive 3D cycling route"></canvas>
+                <canvas id="route-canvas" aria-label="Interactive 3D cycling route with terrain, trees, and buildings"></canvas>
                 <div id="engine-error" class="engine-error" hidden></div>
                 <div id="empty-state" class="empty-state">
                   <div class="empty-orbit" aria-hidden="true"><span>↗</span></div>
