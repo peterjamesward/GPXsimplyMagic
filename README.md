@@ -11,7 +11,7 @@ npm run dev
 
 Open the URL printed by Vite (usually `http://localhost:5173`). Do not open `index.html` through the IDE preview server (for example, `localhost:63342`): it serves `src/main.ts` as a static file instead of transforming it into a JavaScript module.
 
-Use a WebGPU-enabled browser. Open a `.gpx` file with the button or drop one onto the viewer. Drag to rotate, right-drag to pan, and scroll to zoom. Files are read in the browser and are not uploaded.
+Use a WebGPU-enabled browser. Open a `.gpx` file with the button or drop one onto the viewer. Drag the track or background to pan the view while keeping the clicked location beneath the pointer, Control-drag to orbit around the road at the center of the image, right-drag to pan, and scroll to zoom toward the mouse pointer. Files are read in the browser and are not uploaded.
 
 ## Checks
 

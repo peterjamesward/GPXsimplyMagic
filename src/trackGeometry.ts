@@ -1,12 +1,27 @@
 import type { TrackPoint } from "./gpx";
 
-export type TrackMeshData = Readonly<{
+export type TrackMeshPart = Readonly<{
   positions: readonly number[];
   normals: readonly number[];
   indices: readonly number[];
 }>;
 
+export type TrackMeshData = TrackMeshPart & Readonly<{
+  topSurface: TrackMeshPart;
+  leftSide: TrackMeshPart;
+  rightSide: TrackMeshPart;
+}>;
+
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
+type MutableTrackMeshPart = { positions: number[]; normals: number[]; indices: number[] };
+
+const createMutableMeshPart = (): MutableTrackMeshPart => ({ positions: [], normals: [], indices: [] });
+
+const freezeMeshPart = (part: MutableTrackMeshPart): TrackMeshPart => Object.freeze({
+  positions: Object.freeze(part.positions),
+  normals: Object.freeze(part.normals),
+  indices: Object.freeze(part.indices),
+});
 
 const normalize = (point: Point3): Point3 => {
   const length = Math.hypot(point.x, point.y, point.z);
@@ -19,13 +34,24 @@ const cross = (left: Point3, right: Point3): Point3 => ({
   z: left.x * right.y - left.y * right.x,
 });
 
-export const createTrackMeshData = (points: readonly TrackPoint[], radialSegments = 8): TrackMeshData => {
+const subtract = (left: Point3, right: Point3): Point3 => ({
+  x: left.x - right.x,
+  y: left.y - right.y,
+  z: left.z - right.z,
+});
+
+const dot = (left: Point3, right: Point3): number => left.x * right.x + left.y * right.y + left.z * right.z;
+
+type RoadSection = Readonly<{
+  leftTop: Point3;
+  rightTop: Point3;
+  leftBottom: Point3;
+  rightBottom: Point3;
+}>;
+
+export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshData => {
   if (points.length < 2) {
     throw new Error("At least two track points are required to create route geometry.");
-  }
-
-  if (!Number.isInteger(radialSegments) || radialSegments < 3) {
-    throw new Error("A route tube needs at least three radial segments.");
   }
 
   const meanLatitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
@@ -75,48 +101,75 @@ export const createTrackMeshData = (points: readonly TrackPoint[], radialSegment
     z: (point.z - centerZ) * scale,
   }));
 
-  const radius = 0.055;
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const indices: number[] = [];
+  const halfWidth = 2 * scale;
+  const depth = 2 * scale;
+  const asphalt = createMutableMeshPart();
+  const topSurface = createMutableMeshPart();
+  const leftSide = createMutableMeshPart();
+  const rightSide = createMutableMeshPart();
 
-  route.forEach((point, index) => {
-    const previous = route[Math.max(0, index - 1)];
-    const next = route[Math.min(route.length - 1, index + 1)];
-    const tangent = normalize({ x: next.x - previous.x, y: next.y - previous.y, z: next.z - previous.z });
-    const referenceUp = Math.abs(tangent.y) > 0.95 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
-    const side = normalize(cross(referenceUp, tangent));
-    const binormal = normalize(cross(tangent, side));
+  const appendQuad = (
+    part: MutableTrackMeshPart,
+    vertices: readonly [Point3, Point3, Point3, Point3],
+    expectedNormal: Point3,
+  ): void => {
+    const initialNormal = normalize(cross(subtract(vertices[1], vertices[0]), subtract(vertices[2], vertices[0])));
+    const orientedVertices = dot(initialNormal, expectedNormal) < 0
+      ? [vertices[0], vertices[3], vertices[2], vertices[1]] as const
+      : vertices;
+    const normal = normalize(cross(subtract(orientedVertices[1], orientedVertices[0]), subtract(orientedVertices[2], orientedVertices[0])));
+    const firstIndex = part.positions.length / 3;
 
-    for (let segment = 0; segment < radialSegments; segment += 1) {
-      const angle = (segment / radialSegments) * Math.PI * 2;
-      const cosine = Math.cos(angle);
-      const sine = Math.sin(angle);
-      const normal = normalize({
-        x: side.x * cosine + binormal.x * sine,
-        y: side.y * cosine + binormal.y * sine,
-        z: side.z * cosine + binormal.z * sine,
-      });
+    orientedVertices.forEach((vertex) => {
+      part.positions.push(vertex.x, vertex.y, vertex.z);
+      part.normals.push(normal.x, normal.y, normal.z);
+    });
+    part.indices.push(firstIndex, firstIndex + 1, firstIndex + 2, firstIndex, firstIndex + 2, firstIndex + 3);
+  };
 
-      positions.push(point.x + normal.x * radius, point.y + normal.y * radius, point.z + normal.z * radius);
-      normals.push(normal.x, normal.y, normal.z);
-    }
-  });
+  for (let index = 0; index < route.length - 1; index += 1) {
+    const startPoint = route[index];
+    const endPoint = route[index + 1];
+    const direction = subtract(endPoint, startPoint);
+    const horizontalLength = Math.hypot(direction.x, direction.z);
+    const side = horizontalLength === 0
+      ? { x: 1, y: 0, z: 0 }
+      : { x: direction.z / horizontalLength, y: 0, z: -direction.x / horizontalLength };
+    const createSection = (point: Point3): RoadSection => {
+      const leftTop = {
+        x: point.x + side.x * halfWidth,
+        y: point.y,
+        z: point.z + side.z * halfWidth,
+      };
+      const rightTop = {
+        x: point.x - side.x * halfWidth,
+        y: point.y,
+        z: point.z - side.z * halfWidth,
+      };
 
-  for (let pointIndex = 0; pointIndex < route.length - 1; pointIndex += 1) {
-    for (let segment = 0; segment < radialSegments; segment += 1) {
-      const nextSegment = (segment + 1) % radialSegments;
-      const current = pointIndex * radialSegments + segment;
-      const currentNext = pointIndex * radialSegments + nextSegment;
-      const next = (pointIndex + 1) * radialSegments + segment;
-      const nextNext = (pointIndex + 1) * radialSegments + nextSegment;
-      indices.push(current, currentNext, next, currentNext, nextNext, next);
-    }
+      return {
+        leftTop,
+        rightTop,
+        leftBottom: { ...leftTop, y: leftTop.y - depth },
+        rightBottom: { ...rightTop, y: rightTop.y - depth },
+      };
+    };
+
+    const start = createSection(startPoint);
+    const end = createSection(endPoint);
+
+    appendQuad(topSurface, [start.leftTop, end.leftTop, end.rightTop, start.rightTop], { x: 0, y: 1, z: 0 });
+    appendQuad(asphalt, [start.leftBottom, start.rightBottom, end.rightBottom, end.leftBottom], { x: 0, y: -1, z: 0 });
+    appendQuad(leftSide, [start.leftTop, end.leftTop, end.leftBottom, start.leftBottom], side);
+    appendQuad(rightSide, [start.rightTop, start.rightBottom, end.rightBottom, end.rightTop], { x: -side.x, y: -side.y, z: -side.z });
+    appendQuad(asphalt, [start.leftTop, start.rightTop, start.rightBottom, start.leftBottom], { x: -direction.x, y: -direction.y, z: -direction.z });
+    appendQuad(asphalt, [end.leftTop, end.leftBottom, end.rightBottom, end.rightTop], direction);
   }
 
   return Object.freeze({
-    positions: Object.freeze(positions),
-    normals: Object.freeze(normals),
-    indices: Object.freeze(indices),
+    ...freezeMeshPart(asphalt),
+    topSurface: freezeMeshPart(topSurface),
+    leftSide: freezeMeshPart(leftSide),
+    rightSide: freezeMeshPart(rightSide),
   });
 };

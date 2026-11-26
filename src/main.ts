@@ -1,6 +1,5 @@
 import {
   addToScene,
-  attachControl,
   createArcRotateCamera,
   createEngine,
   createHemisphericLight,
@@ -12,8 +11,9 @@ import {
   startEngine,
 } from "@babylonjs/lite";
 import type { Mesh } from "@babylonjs/lite";
+import { attachRouteCameraControls } from "./cameraControls";
 import { getTrackSummary, parseGpx, type Track } from "./gpx";
-import { createTrackMeshData } from "./trackGeometry";
+import { createTrackMeshData, type TrackMeshPart } from "./trackGeometry";
 import "./styles.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#route-canvas");
@@ -53,42 +53,57 @@ const setStatus = (message: string, isError = false): void => {
   statusMessage.classList.toggle("is-error", isError);
 };
 
+const createRoadMesh = (
+  engine: Awaited<ReturnType<typeof createEngine>>,
+  name: string,
+  geometry: TrackMeshPart,
+  diffuseColor: [number, number, number],
+  emissiveColor: [number, number, number],
+): Mesh => {
+  const mesh = createMeshFromData(
+    engine,
+    name,
+    new Float32Array(geometry.positions),
+    new Float32Array(geometry.normals),
+    new Uint32Array(geometry.indices),
+  );
+  const material = createStandardMaterial();
+  material.backFaceCulling = false;
+  material.diffuseColor = diffuseColor;
+  material.emissiveColor = emissiveColor;
+  material.specularColor = [0.12, 0.12, 0.12];
+  material.specularPower = 24;
+  mesh.material = material;
+  return mesh;
+};
+
 const initializeViewer = async (): Promise<void> => {
   try {
     const engine = await createEngine(canvas);
     const scene = createSceneContext(engine);
     const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
 
+    scene.clearColor = { r: 0.52, g: 0.57, b: 0.56, a: 1 };
     scene.camera = camera;
-    attachControl(camera, canvas, scene);
+    attachRouteCameraControls(camera, canvas, scene);
     addToScene(scene, createHemisphericLight([0, 1, 0], 1));
     await registerScene(scene);
     await startEngine(engine);
 
-    let activeMesh: Mesh | undefined;
+    let activeMeshes: readonly Mesh[] = [];
 
     const renderTrack = (track: Track, fileName: string): void => {
       const geometry = createTrackMeshData(track.points);
-      const mesh = createMeshFromData(
-        engine,
-        "gpx-route",
-        new Float32Array(geometry.positions),
-        new Float32Array(geometry.normals),
-        new Uint32Array(geometry.indices),
-      );
-      const material = createStandardMaterial();
-      material.diffuseColor = [0.17, 0.82, 0.69];
-      material.emissiveColor = [0.025, 0.14, 0.105];
-      material.specularColor = [0.22, 0.34, 0.31];
-      material.specularPower = 48;
-      mesh.material = material;
+      const meshes = [
+        createRoadMesh(engine, "gpx-road", geometry, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
+        createRoadMesh(engine, "gpx-road-left", geometry.leftSide, [0.08, 0.68, 0.16], [0.015, 0.1, 0.025]),
+        createRoadMesh(engine, "gpx-road-right", geometry.rightSide, [0.78, 0.08, 0.06], [0.12, 0.015, 0.012]),
+        createRoadMesh(engine, "gpx-road-surface", geometry.topSurface, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
+      ];
 
-      if (activeMesh !== undefined) {
-        removeFromScene(scene, activeMesh);
-      }
-
-      addToScene(scene, mesh);
-      activeMesh = mesh;
+      activeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
+      meshes.forEach((mesh) => addToScene(scene, mesh));
+      activeMeshes = meshes;
 
       const summary = getTrackSummary(track.points);
       routeName.textContent = track.name;
@@ -100,7 +115,7 @@ const initializeViewer = async (): Promise<void> => {
       routeIndicator.classList.add("is-loaded");
       routeIndicator.setAttribute("aria-label", "Route loaded");
       emptyState.hidden = true;
-      setStatus("Route loaded. Drag to orbit, right-drag to pan, or scroll to zoom.");
+      setStatus("Route loaded. Drag the track or background to pan, Control-drag to orbit around the road at the center, or scroll to zoom.");
     };
 
     const openFile = async (file: File): Promise<void> => {
