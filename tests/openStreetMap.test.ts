@@ -5,11 +5,13 @@ import { createTerrainScenery } from "../src/terrainScenery";
 import {
   canPlaceProceduralTreeAt,
   createOpenStreetMapQuery,
+  createLandUseSpatialIndex,
   getLandUseCategoryAt,
   getLandUseColorAt,
   getOpenStreetMapBounds,
   loadOpenStreetMapFeatures,
   parseOpenStreetMapFeatures,
+  type OpenStreetMapArea,
 } from "../src/openStreetMap";
 
 const geometry = createTrackMeshData([
@@ -136,6 +138,55 @@ describe("OpenStreetMap route features", () => {
     expect(getLandUseCategoryAt(100, 100, features.areas)).toBeNull();
     expect(canPlaceProceduralTreeAt(0, 0, features.areas)).toBe(false);
     expect(canPlaceProceduralTreeAt(100, 100, features.areas)).toBe(true);
+  });
+
+  it("matches exhaustive land-use lookups across overlapping spatially indexed areas", () => {
+    const categories = ["water", "farmland", "woodland", "grassland", "residential", "industrial", "bare"] as const;
+    const areas: OpenStreetMapArea[] = Array.from({ length: 40 }, (_value, index) => {
+      const centerX = (index % 8) * 20 - 70;
+      const centerZ = Math.floor(index / 8) * 20 - 40;
+      const radius = index % 5 === 0 ? 14 : 8;
+      const points = Object.freeze([
+        Object.freeze({ x: centerX - radius, z: centerZ - radius }),
+        Object.freeze({ x: centerX + radius, z: centerZ - radius }),
+        Object.freeze({ x: centerX + radius, z: centerZ + radius }),
+        Object.freeze({ x: centerX - radius, z: centerZ + radius }),
+        Object.freeze({ x: centerX - radius, z: centerZ - radius }),
+      ]);
+      return Object.freeze({
+        category: categories[index % categories.length],
+        treesAllowed: index % 2 === 0,
+        points,
+        bounds: Object.freeze({
+          minX: centerX - radius,
+          maxX: centerX + radius,
+          minZ: centerZ - radius,
+          maxZ: centerZ + radius,
+        }),
+      });
+    });
+    const overlappingArea = areas[0];
+    const allAreas = [...areas, Object.freeze({
+      ...overlappingArea,
+      category: "water" as const,
+      treesAllowed: false,
+    })];
+    const index = createLandUseSpatialIndex(allAreas);
+
+    expect(index.getCategoryAt(-70, -40)).toBe("water");
+    expect(index.canPlaceTreeAt(-70, -40)).toBe(true);
+
+    for (let query = 0; query < 240; query += 1) {
+      const x = (query * 37 % 190) - 90;
+      const z = (query * 53 % 130) - 60;
+      const expectedCategory = getLandUseCategoryAt(x, z, allAreas);
+      const expectedColor = getLandUseColorAt(x, z, allAreas);
+      const expectedTreePlacement = canPlaceProceduralTreeAt(x, z, allAreas);
+
+      expect(index.getCategoryAt(x, z)).toBe(expectedCategory);
+      expect(index.getColorAt(x, z)).toEqual(expectedColor);
+      expect(index.canPlaceTreeAt(x, z)).toBe(expectedTreePlacement);
+    }
   });
 
   it("applies land-use vertex colors and extrudes an OSM building footprint", () => {

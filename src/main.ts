@@ -29,12 +29,12 @@ import {
   type TrackProjection,
 } from "./trackGeometry";
 import {
+  createLandUseSpatialIndex,
   emptyOpenStreetMapFeatures,
-  getLandUseColorAt,
   loadOpenStreetMapFeatures,
   type OpenStreetMapFeatures,
 } from "./openStreetMap";
-import { findTrackPointNearRay } from "./trackHover";
+import { createTrackPointRayIndex } from "./trackHover";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
 import { getTrackHoverTolerance } from "./trackHoverLayout";
 import { findNearestScreenPointIndex } from "./trackPointFocus";
@@ -213,6 +213,8 @@ const initializeViewer = async (): Promise<void> => {
     let trackProjection: TrackProjection | null = null;
     let activeGeometry: TrackMeshData | null = null;
     let activeTrackPoints: Track["points"] = [];
+    let activeTrackLongitudes: readonly number[] = [];
+    let activeTrackPointRayIndex = createTrackPointRayIndex([]);
     let syncingMapFromRoute = false;
 
     const focusTrackPoint = (index: number): void => {
@@ -228,9 +230,9 @@ const initializeViewer = async (): Promise<void> => {
       }
 
       const centerLongitude = terrainMap.map.getCenter().lng;
-      const longitudes = getContinuousLongitudes(activeTrackPoints);
       const screenPoints = activeTrackPoints.map((point, index) => {
-        const longitude = longitudes[index] + 360 * Math.round((centerLongitude - longitudes[index]) / 360);
+        const continuousLongitude = activeTrackLongitudes[index];
+        const longitude = continuousLongitude + 360 * Math.round((centerLongitude - continuousLongitude) / 360);
         const screenPoint = terrainMap.map.project([longitude, point.latitude]);
         return { x: screenPoint.x, y: screenPoint.y };
       });
@@ -337,7 +339,7 @@ const initializeViewer = async (): Promise<void> => {
         camera.fov,
         bounds.height,
       );
-      const point = ray === null ? null : findTrackPointNearRay(ray, activeGeometry.routePoints, tolerance);
+      const point = ray === null ? null : activeTrackPointRayIndex(ray, tolerance);
       if (point !== null) {
         event.preventDefault();
         focusTrackPoint(point.pointNumber - 1);
@@ -377,6 +379,8 @@ const initializeViewer = async (): Promise<void> => {
       trackProjection = geometry.projection;
       activeGeometry = geometry;
       activeTrackPoints = track.points;
+      activeTrackLongitudes = getContinuousLongitudes(track.points);
+      activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
       terrainMap.setRoute(track.points);
       const gradientCurtain = createGradientCurtainMeshData(geometry);
       const cameraBounds = Object.freeze({
@@ -427,11 +431,12 @@ const initializeViewer = async (): Promise<void> => {
         const openStreetMapFeatures: OpenStreetMapFeatures = openStreetMapAvailable
           ? openStreetMapResult.value
           : emptyOpenStreetMapFeatures;
+        const landUseIndex = createLandUseSpatialIndex(openStreetMapFeatures.areas);
         const terrainColorAt = openStreetMapFeatures.areas.length === 0
           ? undefined
-          : (x: number, z: number) => getLandUseColorAt(x, z, openStreetMapFeatures.areas) ?? [0.3, 0.4, 0.24] as const;
+          : (x: number, z: number) => landUseIndex.getColorAt(x, z) ?? [0.3, 0.4, 0.24] as const;
         const terrain = createTerrainMeshData(geometry, elevationAt, 65, terrainColorAt);
-        const scenery = createTerrainScenery(terrain, geometry, undefined, openStreetMapFeatures);
+        const scenery = createTerrainScenery(terrain, geometry, undefined, openStreetMapFeatures, landUseIndex);
         const landscapeMeshes = [
           createLandscapeMesh(engine, "route-terrain-ground", terrain, [0.3, 0.4, 0.24], [0.035, 0.05, 0.025]),
           ...(scenery.foliage.positions.length === 0

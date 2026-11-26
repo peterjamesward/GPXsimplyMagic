@@ -1,10 +1,11 @@
 import type { TrackMeshPart, TrackMeshData } from "./trackGeometry";
 import type { TerrainMeshData } from "./terrainGeometry";
+import { createRouteConstraintIndex } from "./routeConstraints";
 import {
-  canPlaceProceduralTreeAt,
+  createLandUseSpatialIndex,
   emptyOpenStreetMapFeatures,
-  getLandUseCategoryAt,
   type MapColor,
+  type LandUseSpatialIndex,
   type OpenStreetMapBuilding,
   type OpenStreetMapFeatures,
 } from "./openStreetMap";
@@ -83,22 +84,6 @@ const createRandom = (seed: number): (() => number) => {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
   };
-};
-
-const getDistanceFromRoute = (x: number, z: number, geometry: TrackMeshData): number => {
-  let nearestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < geometry.routePoints.length - 1; index += 1) {
-    const start = geometry.routePoints[index];
-    const end = geometry.routePoints[index + 1];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const lengthSquared = dx * dx + dz * dz;
-    const ratio = lengthSquared === 0
-      ? 0
-      : Math.max(0, Math.min(1, ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared));
-    nearestDistance = Math.min(nearestDistance, Math.hypot(x - start.x - dx * ratio, z - start.z - dz * ratio));
-  }
-  return nearestDistance;
 };
 
 const isSpacedFrom = (position: Placement, others: readonly Placement[], minimumDistance: number): boolean =>
@@ -325,9 +310,11 @@ export const createTerrainScenery = (
   geometry: TrackMeshData,
   seed = 0x4b1d7e2a,
   features: OpenStreetMapFeatures = emptyOpenStreetMapFeatures,
+  landUseIndex: LandUseSpatialIndex = createLandUseSpatialIndex(features.areas),
 ): TerrainSceneryData => {
   const random = createRandom(seed);
   const scale = geometry.projection.sceneUnitsPerMeter;
+  const findRouteConstraints = createRouteConstraintIndex(geometry.routePoints);
   const areaMeters = ((terrain.bounds.maxX - terrain.bounds.minX) * (terrain.bounds.maxZ - terrain.bounds.minZ)) / (scale * scale);
   const targetTreeCount = Math.max(24, Math.min(240, Math.round(areaMeters / 1_100)));
   const targetBuildingCount = Math.max(1, Math.min(24, Math.round(areaMeters / 22_000)));
@@ -346,8 +333,8 @@ export const createTerrainScenery = (
   for (let attempt = 0; planted.length < targetTreeCount && attempt < targetTreeCount * 80; attempt += 1) {
     const placement = createPlacement();
     if (
-      getDistanceFromRoute(placement.x, placement.z, geometry) < 9 * scale ||
-      !canPlaceProceduralTreeAt(placement.x, placement.z, features.areas) ||
+      findRouteConstraints(placement.x, placement.z, 0).nearest.distance < 9 * scale ||
+      !landUseIndex.canPlaceTreeAt(placement.x, placement.z) ||
       !isSpacedFrom(placement, planted, 10 * scale)
     ) {
       continue;
@@ -370,9 +357,9 @@ export const createTerrainScenery = (
 
   for (let attempt = 0; !hasMappedBuildings && buildings.length < targetBuildingCount && attempt < targetBuildingCount * 150; attempt += 1) {
     const placement = createPlacement();
-    const landUse = getLandUseCategoryAt(placement.x, placement.z, features.areas);
+    const landUse = landUseIndex.getCategoryAt(placement.x, placement.z);
     if (
-      getDistanceFromRoute(placement.x, placement.z, geometry) < 18 * scale ||
+      findRouteConstraints(placement.x, placement.z, 0).nearest.distance < 18 * scale ||
       (landUse !== null && landUse !== "residential" && landUse !== "industrial") ||
       !isSpacedFrom(placement, buildings, 38 * scale) ||
       !isSpacedFrom(placement, planted, 9 * scale)
