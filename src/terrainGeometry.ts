@@ -1,4 +1,5 @@
-import type { TrackMeshPart, TrackRoutePoint, TrackBounds, TrackMeshData } from "./trackGeometry";
+import type { TrackMeshPart, TrackBounds, TrackMeshData } from "./trackGeometry";
+import { createRouteConstraintIndex } from "./routeConstraints";
 
 export type TerrainElevationSampler = (latitude: number, longitude: number) => number | null;
 
@@ -30,65 +31,13 @@ const toGeographicPoint = (x: number, z: number, geometry: TrackMeshData): Reado
   };
 };
 
-type RouteConstraint = Readonly<{ distance: number; x: number; z: number; y: number; elevation: number }>;
-type RouteConstraints = Readonly<{ nearest: RouteConstraint; lowestNearbyRouteHeight: number | null }>;
-
-const findRouteConstraints = (
-  x: number,
-  z: number,
-  points: readonly TrackRoutePoint[],
-  maximumDistance: number,
-): RouteConstraints => {
-  let nearest: RouteConstraint = {
-    distance: Number.POSITIVE_INFINITY,
-    x: points[0].x,
-    z: points[0].z,
-    y: points[0].y,
-    elevation: points[0].altitudeMeters,
-  };
-  let lowestNearbyRouteHeight = Number.POSITIVE_INFINITY;
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const start = points[index];
-    const end = points[index + 1];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const lengthSquared = dx * dx + dz * dz;
-    const ratio = lengthSquared === 0
-      ? 0
-      : Math.max(0, Math.min(1, ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared));
-    const routeX = start.x + dx * ratio;
-    const routeZ = start.z + dz * ratio;
-    const distance = Math.hypot(x - routeX, z - routeZ);
-    const routeHeight = start.y + (end.y - start.y) * ratio;
-
-    if (distance < nearest.distance) {
-      nearest = {
-        distance,
-        x: routeX,
-        z: routeZ,
-        y: routeHeight,
-        elevation: start.altitudeMeters + (end.altitudeMeters - start.altitudeMeters) * ratio,
-      };
-    }
-
-    if (distance <= maximumDistance) {
-      lowestNearbyRouteHeight = Math.min(lowestNearbyRouteHeight, routeHeight);
-    }
-  }
-
-  return {
-    nearest,
-    lowestNearbyRouteHeight: Number.isFinite(lowestNearbyRouteHeight) ? lowestNearbyRouteHeight : null,
-  };
-};
-
 export const createTerrainHeightSampler = (
   geometry: TrackMeshData,
   elevationAt: TerrainElevationSampler,
   terrainCellDiagonalMeters = 0,
 ): ((x: number, z: number) => number) => {
   const route = geometry.routePoints;
+  const findRouteConstraints = createRouteConstraintIndex(route);
   const minimumElevation = route.reduce((minimum, point) => Math.min(minimum, point.altitudeMeters), Number.POSITIVE_INFINITY);
   const sceneUnitsPerMeter = geometry.projection.sceneUnitsPerMeter;
   const sceneYForElevation = (elevation: number): number => 0.12 + (elevation - minimumElevation) * sceneUnitsPerMeter * 2;
@@ -98,7 +47,6 @@ export const createTerrainHeightSampler = (
     const { nearest: constraint, lowestNearbyRouteHeight } = findRouteConstraints(
       x,
       z,
-      route,
       roadClearanceRadius * sceneUnitsPerMeter,
     );
     const terrainLocation = toGeographicPoint(x, z, geometry);
