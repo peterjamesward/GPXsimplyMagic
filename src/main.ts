@@ -1,6 +1,5 @@
 import {
   addToScene,
-  createArcRotateCamera,
   createEngine,
   createHemisphericLight,
   createMeshFromData,
@@ -11,7 +10,7 @@ import {
   startEngine,
 } from "@babylonjs/lite";
 import type { Mesh } from "@babylonjs/lite";
-import { attachRouteCameraControls } from "./cameraControls";
+import { attachRouteCameraControls, createRouteCamera, fitCameraToBounds } from "./cameraControls";
 import { getTrackSummary, parseGpx, type Track } from "./gpx";
 import { createTrackMeshData, type TrackMeshPart } from "./trackGeometry";
 import "./styles.css";
@@ -81,7 +80,7 @@ const initializeViewer = async (): Promise<void> => {
   try {
     const engine = await createEngine(canvas);
     const scene = createSceneContext(engine);
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
+    const camera = createRouteCamera();
 
     scene.clearColor = { r: 0.52, g: 0.57, b: 0.56, a: 1 };
     scene.camera = camera;
@@ -104,6 +103,7 @@ const initializeViewer = async (): Promise<void> => {
       activeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
       meshes.forEach((mesh) => addToScene(scene, mesh));
       activeMeshes = meshes;
+      fitCameraToBounds(camera, canvas, geometry.bounds);
 
       const summary = getTrackSummary(track.points);
       routeName.textContent = track.name;

@@ -6,7 +6,17 @@ export type TrackMeshPart = Readonly<{
   indices: readonly number[];
 }>;
 
+export type TrackBounds = Readonly<{
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}>;
+
 export type TrackMeshData = TrackMeshPart & Readonly<{
+  bounds: TrackBounds;
   topSurface: TrackMeshPart;
   leftSide: TrackMeshPart;
   rightSide: TrackMeshPart;
@@ -69,7 +79,7 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
   const projected = points.map((point, index): Point3 => ({
     x: (unwrappedLongitudes[index] - meanLongitude) * longitudeScale * 111_320,
     y: point.elevationMeters,
-    z: (meanLatitude - point.latitude) * 111_320,
+    z: (point.latitude - meanLatitude) * 111_320,
   }));
   const bounds = projected.reduce(
     (result, point) => ({
@@ -134,7 +144,7 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     const horizontalLength = Math.hypot(direction.x, direction.z);
     const side = horizontalLength === 0
       ? { x: 1, y: 0, z: 0 }
-      : { x: direction.z / horizontalLength, y: 0, z: -direction.x / horizontalLength };
+      : { x: -direction.z / horizontalLength, y: 0, z: direction.x / horizontalLength };
     const createSection = (point: Point3): RoadSection => {
       const leftTop = {
         x: point.x + side.x * halfWidth,
@@ -166,8 +176,28 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     appendQuad(asphalt, [end.leftTop, end.leftBottom, end.rightBottom, end.rightTop], direction);
   }
 
+  const meshBounds = {
+    minX: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  };
+  [asphalt, topSurface, leftSide, rightSide].forEach((part) => {
+    for (let index = 0; index < part.positions.length; index += 3) {
+      meshBounds.minX = Math.min(meshBounds.minX, part.positions[index]);
+      meshBounds.maxX = Math.max(meshBounds.maxX, part.positions[index]);
+      meshBounds.minY = Math.min(meshBounds.minY, part.positions[index + 1]);
+      meshBounds.maxY = Math.max(meshBounds.maxY, part.positions[index + 1]);
+      meshBounds.minZ = Math.min(meshBounds.minZ, part.positions[index + 2]);
+      meshBounds.maxZ = Math.max(meshBounds.maxZ, part.positions[index + 2]);
+    }
+  });
+
   return Object.freeze({
     ...freezeMeshPart(asphalt),
+    bounds: Object.freeze(meshBounds),
     topSurface: freezeMeshPart(topSurface),
     leftSide: freezeMeshPart(leftSide),
     rightSide: freezeMeshPart(rightSide),

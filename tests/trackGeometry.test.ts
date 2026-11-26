@@ -23,6 +23,23 @@ describe("createTrackMeshData", () => {
     expect(Object.isFrozen(geometry.positions)).toBe(true);
   });
 
+  it("includes the full road slab in its bounds", () => {
+    const geometry = createTrackMeshData(samplePoints);
+    const parts = [geometry, geometry.topSurface, geometry.leftSide, geometry.rightSide];
+    const coordinates = parts.flatMap((part) => part.positions);
+    const xCoordinates = coordinates.filter((_value, index) => index % 3 === 0);
+    const yCoordinates = coordinates.filter((_value, index) => index % 3 === 1);
+    const zCoordinates = coordinates.filter((_value, index) => index % 3 === 2);
+
+    expect(geometry.bounds.minX).toBe(Math.min(...xCoordinates));
+    expect(geometry.bounds.maxX).toBe(Math.max(...xCoordinates));
+    expect(geometry.bounds.minY).toBe(Math.min(...yCoordinates));
+    expect(geometry.bounds.maxY).toBe(Math.max(...yCoordinates));
+    expect(geometry.bounds.minZ).toBe(Math.min(...zCoordinates));
+    expect(geometry.bounds.maxZ).toBe(Math.max(...zCoordinates));
+    expect(Object.isFrozen(geometry.bounds)).toBe(true);
+  });
+
   it("creates a four-meter-wide road with a one-meter-deep underside", () => {
     const points: readonly TrackPoint[] = [
       { latitude: 0, longitude: 0, elevationMeters: 100 },
@@ -35,6 +52,24 @@ describe("createTrackMeshData", () => {
 
     expect(Math.max(...xCoordinates) - Math.min(...xCoordinates)).toBeCloseTo(4 * expectedScale, 5);
     expect(Math.max(...yCoordinates) - Math.min(...yCoordinates)).toBeCloseTo(2 * expectedScale, 5);
+  });
+
+  it("maps increasing longitude east and increasing latitude north", () => {
+    const eastbound = createTrackMeshData([
+      { latitude: 0, longitude: 0, elevationMeters: 0 },
+      { latitude: 0, longitude: 0.001, elevationMeters: 0 },
+    ]);
+    const northbound = createTrackMeshData([
+      { latitude: 0, longitude: 0, elevationMeters: 0 },
+      { latitude: 0.001, longitude: 0, elevationMeters: 0 },
+    ]);
+    const eastStartX = eastbound.topSurface.positions[0];
+    const eastEndX = eastbound.topSurface.positions[3];
+    const northStartZ = northbound.topSurface.positions[2];
+    const northEndZ = northbound.topSurface.positions[5];
+
+    expect(eastEndX).toBeGreaterThan(eastStartX);
+    expect(northEndZ).toBeGreaterThan(northStartZ);
   });
 
   it("keeps the tarmac surface above the underside of each road section", () => {
@@ -77,19 +112,19 @@ describe("createTrackMeshData", () => {
     const geometry = createTrackMeshData(points);
     const topFace = geometry.topSurface.positions.slice(0, 12);
     const startAcross = {
-      x: topFace[3] - topFace[0],
-      z: topFace[5] - topFace[2],
+      x: topFace[9] - topFace[0],
+      z: topFace[11] - topFace[2],
     };
     const endAcross = {
-      x: topFace[6] - topFace[9],
-      z: topFace[8] - topFace[11],
+      x: topFace[6] - topFace[3],
+      z: topFace[8] - topFace[5],
     };
 
-    expect(topFace[4]).toBeCloseTo(topFace[1], 10);
-    expect(topFace[7]).toBeCloseTo(topFace[10], 10);
+    expect(topFace[10]).toBeCloseTo(topFace[1], 10);
+    expect(topFace[7]).toBeCloseTo(topFace[4], 10);
     expect(endAcross.x).toBeCloseTo(startAcross.x, 10);
     expect(endAcross.z).toBeCloseTo(startAcross.z, 10);
-    expect(topFace[10]).toBeGreaterThan(topFace[1]);
+    expect(topFace[4]).toBeGreaterThan(topFace[1]);
   });
 
   it("uses the 2-degree short arc between longitudes across the date line", () => {

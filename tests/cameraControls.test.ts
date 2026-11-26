@@ -7,6 +7,8 @@ import {
   getPointerPanAnchor,
   getPointerPlaneIntersection,
   getViewportCenterOrbitTarget,
+  createRouteCamera,
+  fitCameraToBounds,
   isControlClickOrbit,
   isPrimaryDragPan,
   panCameraToPointerAnchor,
@@ -38,6 +40,24 @@ vi.mock("@babylonjs/lite", async (importOriginal) => {
 });
 
 describe("route camera controls", () => {
+  it("starts north-up with east on the right", () => {
+    const camera = createRouteCamera();
+    const cameraPosition = getCameraPosition(camera);
+    const forward = getCameraViewDirection(camera);
+    expect(forward).not.toBeNull();
+
+    const right = { x: forward?.z ?? 0, y: 0, z: -(forward?.x ?? 0) };
+    const screenUp = {
+      x: (forward?.y ?? 0) * right.z - (forward?.z ?? 0) * right.y,
+      y: (forward?.z ?? 0) * right.x - (forward?.x ?? 0) * right.z,
+      z: (forward?.x ?? 0) * right.y - (forward?.y ?? 0) * right.x,
+    };
+
+    expect(cameraPosition.z).toBeLessThan(camera.target.z);
+    expect(right.x).toBeGreaterThan(0);
+    expect(screenUp.z).toBeGreaterThan(0);
+  });
+
   it("keeps the mouse position anchored during zoom", () => {
     const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
     const canvas = {
@@ -54,6 +74,61 @@ describe("route camera controls", () => {
     expect(anchorAfter?.x).toBeCloseTo(anchorBefore?.x ?? 0, 6);
     expect(anchorAfter?.y).toBeCloseTo(anchorBefore?.y ?? 0, 6);
     expect(anchorAfter?.z).toBeCloseTo(anchorBefore?.z ?? 0, 6);
+  });
+
+  it("centers and zooms out to fit track bounds with viewport padding", () => {
+    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
+    const canvas = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    } as HTMLCanvasElement;
+    camera.inertialRadiusOffset = 2;
+    camera.inertialPanningX = 1;
+
+    expect(fitCameraToBounds(camera, canvas, {
+      minX: -10,
+      maxX: 10,
+      minY: -2,
+      maxY: 2,
+      minZ: -1,
+      maxZ: 1,
+    })).toBe(true);
+
+    expect(camera.target.x).toBeCloseTo(0);
+    expect(camera.target.y).toBeCloseTo(0);
+    expect(camera.target.z).toBeCloseTo(0);
+    expect(camera.radius).toBeGreaterThan(Math.hypot(10, 2, 1));
+    expect(camera.inertialRadiusOffset).toBe(0);
+    expect(camera.inertialPanningX).toBe(0);
+  });
+
+  it("uses the viewport aspect ratio and refits when a different track is loaded", () => {
+    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
+    const landscapeCanvas = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    } as HTMLCanvasElement;
+    const portraitCanvas = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 600 }),
+    } as HTMLCanvasElement;
+    const bounds = { minX: -10, maxX: 10, minY: -2, maxY: 2, minZ: -1, maxZ: 1 };
+
+    fitCameraToBounds(camera, landscapeCanvas, bounds);
+    const landscapeRadius = camera.radius;
+    fitCameraToBounds(camera, portraitCanvas, bounds);
+    const portraitRadius = camera.radius;
+    fitCameraToBounds(camera, landscapeCanvas, {
+      minX: 18,
+      maxX: 22,
+      minY: 6,
+      maxY: 8,
+      minZ: -4,
+      maxZ: 4,
+    });
+
+    expect(portraitRadius).toBeGreaterThan(landscapeRadius);
+    expect(camera.target.x).toBeCloseTo(20);
+    expect(camera.target.y).toBeCloseTo(7);
+    expect(camera.target.z).toBeCloseTo(0);
+    expect(camera.radius).toBeLessThan(landscapeRadius);
   });
 
   it("keeps the point grabbed at drag start beneath the moving pointer", () => {

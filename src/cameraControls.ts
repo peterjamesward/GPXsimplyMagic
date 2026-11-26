@@ -1,5 +1,6 @@
 import {
   attachControl,
+  createArcRotateCamera,
   createPickingRay,
   getCameraPosition,
   getEffectiveAspectRatio,
@@ -7,8 +8,12 @@ import {
   pickWithRayPrecise,
 } from "@babylonjs/lite";
 import type { ArcRotateCamera, SceneContext } from "@babylonjs/lite";
+import type { TrackBounds } from "./trackGeometry";
 
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
+
+export const createRouteCamera = (): ArcRotateCamera =>
+  createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
 
 export const isPrimaryDragPan = (event: Pick<PointerEvent, "button" | "ctrlKey">): boolean =>
   event.button === 0 && !event.ctrlKey;
@@ -61,6 +66,54 @@ export const getCameraViewDirection = (camera: ArcRotateCamera): Point3 | null =
   return forwardLength === 0
     ? null
     : { x: forward.x / forwardLength, y: forward.y / forwardLength, z: forward.z / forwardLength };
+};
+
+export const fitCameraToBounds = (
+  camera: ArcRotateCamera,
+  canvas: HTMLCanvasElement,
+  bounds: TrackBounds,
+): boolean => {
+  const { width, height } = canvas.getBoundingClientRect();
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+
+  const coordinates = [bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, bounds.minZ, bounds.maxZ];
+  if (!coordinates.every(Number.isFinite)) {
+    return false;
+  }
+
+  const verticalHalfFov = camera.fov / 2;
+  const aspectRatio = getEffectiveAspectRatio(camera, width, height);
+  if (verticalHalfFov <= 0 || verticalHalfFov >= Math.PI / 2 || !Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+    return false;
+  }
+
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const boundingRadius = Math.hypot(
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    bounds.maxZ - bounds.minZ,
+  ) / 2;
+  const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * aspectRatio);
+  const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
+  const radius = Math.max(0.01, (boundingRadius / Math.sin(limitingHalfFov)) * 1.15);
+  if (!Number.isFinite(radius)) {
+    return false;
+  }
+
+  camera.target.x = centerX;
+  camera.target.y = centerY;
+  camera.target.z = centerZ;
+  camera.radius = radius;
+  camera.inertialAlphaOffset = 0;
+  camera.inertialBetaOffset = 0;
+  camera.inertialRadiusOffset = 0;
+  camera.inertialPanningX = 0;
+  camera.inertialPanningY = 0;
+  return true;
 };
 
 export const getPointerPlaneIntersection = (
