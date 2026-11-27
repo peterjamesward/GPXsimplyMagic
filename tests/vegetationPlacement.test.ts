@@ -20,18 +20,18 @@ const geometry = createTrackMeshData([
 const terrain = createTerrainMeshData(geometry, () => 1200, 9);
 
 describe("stylized vegetation placement", () => {
-  it("halves route and Ride tree targets and doubles grass targets", () => {
-    expect(getRouteTreePlacementTarget(30_000)).toBe(400);
-    expect(getRouteTreePlacementTarget(0)).toBe(12);
-    expect(getRouteGrassPlacementTarget(1_000)).toBe(20_000);
-    expect(getRouteGrassPlacementTarget(0)).toBe(3_000);
-    expect(getRouteGrassPlacementTarget(10_000)).toBe(40_000);
-    expect(getRideTreePlacementTarget(33)).toBe(31);
-    expect(getRideTreePlacementTarget(17)).toBe(17);
-    expect(getRideTreePlacementTarget(16)).toBe(6);
-    expect(getRideGrassPlacementTarget(33)).toBe(9_000);
-    expect(getRideGrassPlacementTarget(17)).toBe(3_600);
-    expect(getRideGrassPlacementTarget(16)).toBe(1_000);
+  it("uses the reduced route and Ride tree and grass targets", () => {
+    expect(getRouteTreePlacementTarget(30_000)).toBe(200);
+    expect(getRouteTreePlacementTarget(0)).toBe(6);
+    expect(getRouteGrassPlacementTarget(1_000)).toBe(10_000);
+    expect(getRouteGrassPlacementTarget(0)).toBe(1_500);
+    expect(getRouteGrassPlacementTarget(10_000)).toBe(20_000);
+    expect(getRideTreePlacementTarget(33)).toBe(16);
+    expect(getRideTreePlacementTarget(17)).toBe(9);
+    expect(getRideTreePlacementTarget(16)).toBe(3);
+    expect(getRideGrassPlacementTarget(33)).toBe(4_500);
+    expect(getRideGrassPlacementTarget(17)).toBe(1_800);
+    expect(getRideGrassPlacementTarget(16)).toBe(500);
   });
 
   it("creates deterministic grass within terrain bounds and clear of the GPX road", () => {

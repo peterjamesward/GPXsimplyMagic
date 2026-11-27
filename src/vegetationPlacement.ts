@@ -23,16 +23,16 @@ export type StylizedGrassPlacement = Readonly<{
 export type GrassPlacementMode = "area" | "route";
 
 export const getRouteTreePlacementTarget = (routeLengthMeters: number): number =>
-  Math.round(Math.max(24, Math.min(800, Math.round(routeLengthMeters / 30))) / 2);
+  Math.round(Math.max(24, Math.min(800, Math.round(routeLengthMeters / 30))) / 4);
 
 export const getRouteGrassPlacementTarget = (routeLengthMeters: number): number =>
-  Math.min(40_000, Math.max(3_000, Math.round(routeLengthMeters * 20)));
+  Math.min(20_000, Math.max(1_500, Math.round(routeLengthMeters * 10)));
 
 export const getRideTreePlacementTarget = (gridSize: number): number =>
-  gridSize >= 33 ? 31 : gridSize >= 17 ? 17 : 6;
+  gridSize >= 33 ? 16 : gridSize >= 17 ? 9 : 3;
 
 export const getRideGrassPlacementTarget = (gridSize: number): number =>
-  gridSize >= 33 ? 9_000 : gridSize >= 17 ? 3_600 : 1_000;
+  gridSize >= 33 ? 4_500 : gridSize >= 17 ? 1_800 : 500;
 
 const createRandom = (seed: number): (() => number) => {
   let state = seed >>> 0;
