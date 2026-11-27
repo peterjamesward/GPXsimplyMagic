@@ -56,7 +56,7 @@ describe("createTrackMeshData", () => {
     expect(geometry.topSurface.uvs).toHaveLength((geometry.topSurface.positions.length / 3) * 2);
   });
 
-  it("maps increasing longitude east and increasing latitude north", () => {
+  it("maps increasing longitude westward and increasing latitude north", () => {
     const eastbound = createTrackMeshData([
       { latitude: 0, longitude: 0, elevationMeters: 0 },
       { latitude: 0, longitude: 0.001, elevationMeters: 0 },
@@ -65,13 +65,14 @@ describe("createTrackMeshData", () => {
       { latitude: 0, longitude: 0, elevationMeters: 0 },
       { latitude: 0.001, longitude: 0, elevationMeters: 0 },
     ]);
-    const eastStartX = eastbound.topSurface.positions[0];
-    const eastEndX = eastbound.topSurface.positions[3];
-    const northStartZ = northbound.topSurface.positions[2];
-    const northEndZ = northbound.topSurface.positions[5];
+    const eastStartX = eastbound.routePoints[0].x;
+    const eastEndX = eastbound.routePoints[1].x;
+    const northStartZ = northbound.routePoints[0].z;
+    const northEndZ = northbound.routePoints[1].z;
 
-    expect(eastEndX).toBeGreaterThan(eastStartX);
+    expect(eastEndX).toBeLessThan(eastStartX);
     expect(northEndZ).toBeGreaterThan(northStartZ);
+    expect(eastbound.projection.longitudeScale).toBeLessThan(0);
   });
 
   it("keeps each uphill road surface at route altitude across the full width", () => {

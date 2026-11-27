@@ -92,7 +92,7 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
   const meanLatitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
   const unwrappedLongitudes = getContinuousLongitudes(points);
   const meanLongitude = unwrappedLongitudes.reduce((total, longitude) => total + longitude, 0) / points.length;
-  const longitudeScale = Math.cos((meanLatitude * Math.PI) / 180);
+  const longitudeScale = -Math.cos((meanLatitude * Math.PI) / 180);
   const projected = points.map((point, index): Point3 => ({
     x: (unwrappedLongitudes[index] - meanLongitude) * longitudeScale * 111_320,
     y: point.elevationMeters,

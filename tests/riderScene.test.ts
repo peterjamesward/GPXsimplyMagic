@@ -54,7 +54,7 @@ describe("first-person ride scene", () => {
     expect(pose.position.x).toBeCloseTo((start.x + middle.x) / 2);
     expect(pose.position.z).toBeCloseTo((start.z + middle.z) / 2);
     expect(pose.position.y).toBeCloseTo((start.y + middle.y) / 2 + 1.65 * geometry.projection.sceneUnitsPerMeter * 2);
-    expect(pose.target.x).toBeGreaterThan(pose.position.x);
+    expect(pose.target.x).toBeLessThan(pose.position.x);
     expect(end.distanceMeters).toBeGreaterThan(middle.distanceMeters);
   });
 

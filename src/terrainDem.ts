@@ -71,7 +71,7 @@ export const decodeTerrariumElevation = (red: number, green: number, blue: numbe
 
 const toGeographicPoint = (x: number, z: number, geometry: TrackMeshData): Readonly<{ latitude: number; longitude: number }> => {
   const { projection } = geometry;
-  const longitudeScale = Math.max(Math.abs(projection.longitudeScale), 0.00001);
+  const longitudeScale = Math.sign(projection.longitudeScale || -1) * Math.max(Math.abs(projection.longitudeScale), 0.00001);
   return {
     latitude: projection.centerLatitude + z / (projection.sceneUnitsPerMeter * 111_320),
     longitude: projection.centerLongitude + x / (projection.sceneUnitsPerMeter * longitudeScale * 111_320),

@@ -31,7 +31,7 @@ const isValidProjection = (projection: TrackProjection): boolean =>
   Number.isFinite(projection.centerLatitude) &&
   Number.isFinite(projection.centerLongitude) &&
   Number.isFinite(projection.longitudeScale) &&
-  projection.longitudeScale > 0 &&
+  projection.longitudeScale !== 0 &&
   Number.isFinite(projection.sceneUnitsPerMeter) &&
   projection.sceneUnitsPerMeter > 0;
 

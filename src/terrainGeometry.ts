@@ -27,7 +27,7 @@ const normalize = (point: Point3): Point3 => {
 const toGeographicPoint = (x: number, z: number, geometry: TrackMeshData): Readonly<{ latitude: number; longitude: number }> => {
   const { projection } = geometry;
   const scale = projection.sceneUnitsPerMeter;
-  const longitudeScale = Math.max(Math.abs(projection.longitudeScale), 0.00001);
+  const longitudeScale = Math.sign(projection.longitudeScale || -1) * Math.max(Math.abs(projection.longitudeScale), 0.00001);
   return {
     latitude: projection.centerLatitude + (z / scale / 111_320),
     longitude: projection.centerLongitude + (x / scale / (longitudeScale * 111_320)),

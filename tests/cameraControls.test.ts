@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   centerCameraOnTrackPoint,
@@ -16,6 +17,7 @@ import {
   updateRouteCamera,
   zoomCameraAtPointer,
 } from "../src/cameraControls";
+import { createTrackMeshData } from "../src/trackGeometry";
 
 const createCanvas = (left = 100, top = 50, width = 800, height = 600): HTMLCanvasElement => ({
   getBoundingClientRect: () => ({ left, top, width, height }),
@@ -53,22 +55,26 @@ describe("route camera controls", () => {
     expect(camera.inertialPanningY).toBe(0);
   });
 
-  it("starts north-up with east on the right", () => {
+  it("renders east to the right and north toward the top of the route view", () => {
     const camera = createRouteCamera();
-    const cameraPosition = getCameraPosition(camera);
-    const forward = getCameraViewDirection(camera);
-    expect(forward).not.toBeNull();
+    updateRouteCamera(camera);
+    const eastbound = createTrackMeshData([
+      { latitude: 0, longitude: -0.001, elevationMeters: 0 },
+      { latitude: 0, longitude: 0.001, elevationMeters: 0 },
+    ]);
+    const northbound = createTrackMeshData([
+      { latitude: -0.001, longitude: 0, elevationMeters: 0 },
+      { latitude: 0.001, longitude: 0, elevationMeters: 0 },
+    ]);
+    const project = (point: Readonly<{ x: number; y: number; z: number }>): THREE.Vector3 =>
+      new THREE.Vector3(point.x, point.y, point.z).project(camera.renderCamera);
+    const westOnScreen = project(eastbound.routePoints[0]);
+    const eastOnScreen = project(eastbound.routePoints[1]);
+    const southOnScreen = project(northbound.routePoints[0]);
+    const northOnScreen = project(northbound.routePoints[1]);
 
-    const right = { x: forward?.z ?? 0, y: 0, z: -(forward?.x ?? 0) };
-    const screenUp = {
-      x: (forward?.y ?? 0) * right.z - (forward?.z ?? 0) * right.y,
-      y: (forward?.z ?? 0) * right.x - (forward?.x ?? 0) * right.z,
-      z: (forward?.x ?? 0) * right.y - (forward?.y ?? 0) * right.x,
-    };
-
-    expect(cameraPosition.z).toBeLessThan(camera.target.z);
-    expect(right.x).toBeGreaterThan(0);
-    expect(screenUp.z).toBeGreaterThan(0);
+    expect(eastOnScreen.x).toBeGreaterThan(westOnScreen.x);
+    expect(northOnScreen.y).toBeGreaterThan(southOnScreen.y);
   });
 
   it("keeps the mouse position anchored during zoom", () => {

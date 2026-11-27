@@ -571,7 +571,7 @@ const initializeViewer = async (): Promise<void> => {
           const pose = getRideCameraPose(geometry.routePoints, ridePlayback.distanceMeters, sceneUnitsPerMeter);
           const latitude = trackProjection.centerLatitude + pose.position.z / (111_320 * sceneUnitsPerMeter);
           const longitude = trackProjection.centerLongitude + pose.position.x / (
-            111_320 * sceneUnitsPerMeter * Math.max(1e-8, Math.abs(trackProjection.longitudeScale))
+            111_320 * sceneUnitsPerMeter * trackProjection.longitudeScale
           );
           return { center: [longitude, latitude], zoom: 15, width, height, pitch: 0 };
         }

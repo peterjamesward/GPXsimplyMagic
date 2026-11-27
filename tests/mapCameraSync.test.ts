@@ -11,7 +11,7 @@ import type { TrackProjection } from "../src/trackGeometry";
 const projection: TrackProjection = {
   centerLatitude: 45,
   centerLongitude: 180,
-  longitudeScale: Math.cos((45 * Math.PI) / 180),
+  longitudeScale: -Math.cos((45 * Math.PI) / 180),
   sceneUnitsPerMeter: 0.002,
 };
 
@@ -28,7 +28,7 @@ describe("camera synchronization", () => {
     const mapView = getMapCameraView(routeCamera, { width: 600, height: 600 }, projection);
 
     expect(mapView).not.toBeNull();
-    expect(mapView?.center[0]).toBeGreaterThan(180);
+    expect(mapView?.center[0]).toBeLessThan(180);
     expect(mapView?.center[1]).toBeLessThan(45);
     expect(mapView?.bearing).toBeCloseTo(0);
     expect(mapView?.pitch).toBeCloseTo((1.1 * 180) / Math.PI);
@@ -116,7 +116,7 @@ describe("camera synchronization", () => {
       4,
     );
 
-    expect(mapCamera?.target.x).toBeCloseTo(0.1 * projection.longitudeScale * 111_320 * projection.sceneUnitsPerMeter, 6);
+    expect(mapCamera?.target.x).toBeCloseTo(-0.1 * Math.abs(projection.longitudeScale) * 111_320 * projection.sceneUnitsPerMeter, 6);
     expect(mapCamera?.target.y).toBe(4);
   });
 

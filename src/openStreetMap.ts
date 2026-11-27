@@ -82,11 +82,13 @@ const normalizeLongitude = (longitude: number): number => ((longitude + 180) % 3
 export const getOpenStreetMapBounds = (geometry: TrackMeshData): readonly GeographicBounds[] => {
   const area = getTerrainAreaBounds(geometry);
   const { projection } = geometry;
-  const longitudeScale = Math.max(Math.abs(projection.longitudeScale), 0.00001);
+  const longitudeScale = Math.sign(projection.longitudeScale || -1) * Math.max(Math.abs(projection.longitudeScale), 0.00001);
   const south = Math.max(-maximumLatitude, Math.min(maximumLatitude, projection.centerLatitude + area.minZ / (projection.sceneUnitsPerMeter * 111_320)));
   const north = Math.max(-maximumLatitude, Math.min(maximumLatitude, projection.centerLatitude + area.maxZ / (projection.sceneUnitsPerMeter * 111_320)));
-  const west = projection.centerLongitude + area.minX / (projection.sceneUnitsPerMeter * longitudeScale * 111_320);
-  const east = projection.centerLongitude + area.maxX / (projection.sceneUnitsPerMeter * longitudeScale * 111_320);
+  const firstLongitude = projection.centerLongitude + area.minX / (projection.sceneUnitsPerMeter * longitudeScale * 111_320);
+  const secondLongitude = projection.centerLongitude + area.maxX / (projection.sceneUnitsPerMeter * longitudeScale * 111_320);
+  const west = Math.min(firstLongitude, secondLongitude);
+  const east = Math.max(firstLongitude, secondLongitude);
 
   if (east - west >= 360) {
     return Object.freeze([Object.freeze({ south, west: -180, north, east: 180 })]);

@@ -11,7 +11,7 @@ const geometry = createTrackMeshData([
 describe("findTrackPointNearRay", () => {
   it("returns the closest route point's index and measurements when the ray is near the track", () => {
     const point = findTrackPointNearRay(
-      { origin: { x: 4, y: 3, z: 0 }, direction: { x: 0, y: -1, z: 0 } },
+      { origin: { x: -4, y: 3, z: 0 }, direction: { x: 0, y: -1, z: 0 } },
       geometry.routePoints,
       geometry.roadHalfWidth,
     );
@@ -37,7 +37,7 @@ describe("findTrackPointNearRay", () => {
 
   it("uses the closest point on a segment when the ray origin is nearest", () => {
     const point = findTrackPointNearRay(
-      { origin: { x: 4, y: 0, z: 0 }, direction: { x: 0, y: -1, z: 0 } },
+      { origin: { x: -4, y: 0, z: 0 }, direction: { x: 0, y: -1, z: 0 } },
       geometry.routePoints,
       1,
     );
