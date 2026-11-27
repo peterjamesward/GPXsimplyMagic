@@ -2,6 +2,8 @@
 
 A local-first TypeScript starter for opening and exploring cycling GPX tracks in a 3D viewer. Track parsing and route geometry are pure functions over readonly data; Babylon Lite handles WebGPU rendering and mouse navigation.
 
+The **Ride** tab adds a first-person camera that travels the route at a selected cycling speed. Start or pause playback, scrub to a position, and follow the rider marker in the elevation profile. The scene uses route-following road markings, a cyclist cockpit overlay, lit terrain, and atmospheric distance fog; it is a stylized ride rather than a geographically accurate simulation. Existing mapped water, land-use, and building geometry remains part of the landscape where available.
+
 ## Run locally
 
 ```sh

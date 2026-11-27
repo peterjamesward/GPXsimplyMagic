@@ -209,4 +209,22 @@ describe("terrain geometry", () => {
     expect(first.foliage.normals.every(Number.isFinite)).toBe(true);
     expect(first.buildingWalls.indices.length).toBeGreaterThan(0);
   });
+
+  it("keeps dense procedural foliage beside long routes instead of spreading it across the full terrain bounds", () => {
+    const geometry = createTrackMeshData([
+      { latitude: 0, longitude: 0, elevationMeters: 100 },
+      { latitude: 0, longitude: 0.25, elevationMeters: 100 },
+    ]);
+    const terrain = createTerrainMeshData(geometry, () => 100, 9);
+    const scenery = createTerrainScenery(terrain, geometry, 24);
+    let foliageVerticesBesideRoute = 0;
+    for (let index = 2; index < scenery.foliage.positions.length; index += 3) {
+      if (Math.abs(scenery.foliage.positions[index]) <= 130 * geometry.projection.sceneUnitsPerMeter) {
+        foliageVerticesBesideRoute += 1;
+      }
+    }
+
+    expect(scenery.foliage.positions.length / 135).toBeGreaterThan(400);
+    expect(foliageVerticesBesideRoute / (scenery.foliage.positions.length / 3)).toBeGreaterThan(0.75);
+  });
 });

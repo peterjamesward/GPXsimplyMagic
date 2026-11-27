@@ -60,3 +60,5 @@ This document preserves the project's conversation-driven narrative: the request
 36. **Load Babylon terrain progressively with camera zoom.** The GPX-conformed terrain appears immediately, then elevation tiles load for the visible viewport at its current zoom. Zooming and panning request finer or newly visible coverage; existing elevations remain available as fallback while patches load and wherever finer tiles have gaps.
 
 The recorded test and build results for the changes above are in their corresponding conversation summaries; this history file itself is documentation and does not change application behavior.
+
+37. **Add a stylized first-person Ride scene.** A new Ride tab switches the shared Babylon scene to a route-distance camera with playback, selectable speeds, scrubbing, and an elevation-profile rider marker. The view adds a cyclist cockpit overlay, road markings, directional sunlight, and distance fog; procedural foliage is denser and biased near long routes, while mapped water, land-use, and buildings remain in the landscape.

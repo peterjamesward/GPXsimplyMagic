@@ -5,6 +5,7 @@ import {
   focusTrackProfileView,
   getTrackProfileMetersPerPixel,
   getTrackProfilePlotBounds,
+  getTrackProfilePointAtDistance,
   getTrackProfilePointAtPosition,
   getTrackProfileScreenPoint,
   panTrackProfileView,
@@ -24,6 +25,7 @@ export const createTrackProfileView = (
 ): Readonly<{
   setRoute: (points: readonly TrackRoutePoint[]) => void;
   focusOnPoint: (pointIndex: number, metersPerPixel: number) => void;
+  setRiderDistance: (distanceMeters: number | null) => void;
   refresh: () => void;
 }> => {
   const context = canvas.getContext("2d");
@@ -39,6 +41,7 @@ export const createTrackProfileView = (
   let routePoints: readonly TrackRoutePoint[] = [];
   let viewState: TrackProfileViewState | null = null;
   let hover: ProfileHover | null = null;
+  let riderDistanceMeters: number | null = null;
   let dragging = false;
   let lastPointer: PointerPosition | null = null;
 
@@ -177,7 +180,7 @@ export const createTrackProfileView = (
     context.clearRect(0, 0, width, height);
     context.drawImage(baseCanvas, 0, 0, backingWidth, backingHeight, 0, 0, width, height);
 
-    if (hover === null || viewState === null) {
+    if (viewState === null) {
       return;
     }
     const plot = getTrackProfilePlotBounds(width, height);
@@ -185,6 +188,33 @@ export const createTrackProfileView = (
     context.beginPath();
     context.rect(plot.left, plot.top, plot.width, plot.height);
     context.clip();
+    if (riderDistanceMeters !== null) {
+      const riderPoint = getTrackProfilePointAtDistance(routePoints, riderDistanceMeters);
+      const distanceRange = viewState.maxDistanceMeters - viewState.minDistanceMeters;
+      if (riderPoint !== null && distanceRange > 0 && riderDistanceMeters >= viewState.minDistanceMeters && riderDistanceMeters <= viewState.maxDistanceMeters) {
+        const x = plot.left + ((riderDistanceMeters - viewState.minDistanceMeters) / distanceRange) * plot.width;
+        const marker = getTrackProfileScreenPoint(riderPoint.point, viewState, plot);
+        context.setLineDash([4, 3]);
+        context.strokeStyle = "#76ddbd";
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.moveTo(x, plot.top);
+        context.lineTo(x, plot.top + plot.height);
+        context.stroke();
+        context.setLineDash([]);
+        context.beginPath();
+        context.arc(x, marker.y, 4, 0, Math.PI * 2);
+        context.fillStyle = "#76ddbd";
+        context.fill();
+        context.strokeStyle = "#10201b";
+        context.lineWidth = 1;
+        context.stroke();
+      }
+    }
+    if (hover === null) {
+      context.restore();
+      return;
+    }
     context.setLineDash([3, 3]);
     context.strokeStyle = "rgba(255, 255, 255, 0.88)";
     context.lineWidth = 1;
@@ -304,6 +334,7 @@ export const createTrackProfileView = (
       routePoints = points;
       viewState = points.length === 0 ? null : createTrackProfileViewState(points);
       hover = null;
+      riderDistanceMeters = null;
       onHover(null);
       draw();
     },
@@ -322,6 +353,10 @@ export const createTrackProfileView = (
       hover = null;
       onHover(null);
       draw();
+    },
+    setRiderDistance: (distanceMeters: number | null): void => {
+      riderDistanceMeters = distanceMeters;
+      drawHover();
     },
     refresh: draw,
   });

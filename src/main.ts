@@ -1,6 +1,8 @@
 import {
   addToScene,
   createEngine,
+  createDirectionalLight,
+  createFreeCamera,
   createHemisphericLight,
   createMeshFromData,
   createSceneContext,
@@ -9,9 +11,10 @@ import {
   removeFromScene,
   registerScene,
   setMeshVisible,
+  setFog,
   startEngine,
 } from "@babylonjs/lite";
-import type { Mesh } from "@babylonjs/lite";
+import type { FreeCamera, Mesh } from "@babylonjs/lite";
 import {
   getMapCameraView,
   getRouteCameraMetersPerPixel,
@@ -56,6 +59,7 @@ import {
 } from "./terrainDem";
 import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
+import { createRideRoadMarkings, getRideCameraPose } from "./riderScene";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
 
@@ -64,8 +68,15 @@ const fileInput = document.querySelector<HTMLInputElement>("#gpx-file");
 const viewer = document.querySelector<HTMLElement>("#viewer");
 const showRouteViewButton = document.querySelector<HTMLButtonElement>("#show-route-view");
 const showMapViewButton = document.querySelector<HTMLButtonElement>("#show-map-view");
+const showRideViewButton = document.querySelector<HTMLButtonElement>("#show-ride-view");
 const terrainControl = document.querySelector<HTMLElement>("#terrain-control");
 const terrainVisibilityToggle = document.querySelector<HTMLInputElement>("#show-terrain");
+const rideControls = document.querySelector<HTMLElement>("#ride-controls");
+const ridePlayButton = document.querySelector<HTMLButtonElement>("#ride-play");
+const rideProgress = document.querySelector<HTMLInputElement>("#ride-progress");
+const rideSpeed = document.querySelector<HTMLSelectElement>("#ride-speed");
+const rideReadout = document.querySelector<HTMLOutputElement>("#ride-readout");
+const rideCockpit = document.querySelector<SVGElement>("#ride-cockpit");
 const routeViewPanel = document.querySelector<HTMLElement>("#route-view-panel");
 const terrainViewPanel = document.querySelector<HTMLElement>("#terrain-view-panel");
 const mapContainer = document.querySelector<HTMLElement>("#map-canvas");
@@ -82,8 +93,15 @@ if (
   viewer === null ||
   showRouteViewButton === null ||
   showMapViewButton === null ||
+  showRideViewButton === null ||
   terrainControl === null ||
   terrainVisibilityToggle === null ||
+  rideControls === null ||
+  ridePlayButton === null ||
+  rideProgress === null ||
+  rideSpeed === null ||
+  rideReadout === null ||
+  rideCockpit === null ||
   routeViewPanel === null ||
   terrainViewPanel === null ||
   mapContainer === null ||
@@ -97,23 +115,37 @@ if (
   throw new Error("The route viewer page is missing required elements.");
 }
 
-const showView = (activeView: "route" | "map"): void => {
-  const isRouteActive = activeView === "route";
-  showRouteViewButton.setAttribute("aria-selected", String(isRouteActive));
-  showMapViewButton.setAttribute("aria-selected", String(!isRouteActive));
-  showRouteViewButton.tabIndex = isRouteActive ? 0 : -1;
-  showMapViewButton.tabIndex = isRouteActive ? -1 : 0;
-  routeViewPanel.setAttribute("aria-hidden", String(!isRouteActive));
-  terrainViewPanel.setAttribute("aria-hidden", String(isRouteActive));
-  routeViewPanel.inert = !isRouteActive;
-  terrainViewPanel.inert = isRouteActive;
-  terrainControl.hidden = !isRouteActive;
+type ViewerMode = "route" | "map" | "ride";
+let activeView: ViewerMode = "route";
+let activateSceneView = (_view: ViewerMode): void => {};
+const viewTabs = [showRouteViewButton, showMapViewButton, showRideViewButton] as const;
+
+const showView = (view: ViewerMode): void => {
+  activeView = view;
+  const isMapActive = view === "map";
+  const isRideActive = view === "ride";
+  viewTabs.forEach((tab) => {
+    const isSelected = tab === (isMapActive ? showMapViewButton : isRideActive ? showRideViewButton : showRouteViewButton);
+    tab.setAttribute("aria-selected", String(isSelected));
+    tab.tabIndex = isSelected ? 0 : -1;
+  });
+  routeViewPanel.setAttribute("aria-hidden", String(isMapActive));
+  routeViewPanel.setAttribute("aria-labelledby", isRideActive ? "show-ride-view" : "show-route-view");
+  routeViewPanel.setAttribute("aria-label", isRideActive ? "First-person bicycle ride view" : "Babylon 3D route view");
+  terrainViewPanel.setAttribute("aria-hidden", String(!isMapActive));
+  routeViewPanel.inert = isMapActive;
+  terrainViewPanel.inert = !isMapActive;
+  routeViewPanel.classList.toggle("is-riding", isRideActive);
+  terrainControl.hidden = isMapActive;
+  rideControls.hidden = !isRideActive;
+  rideCockpit.toggleAttribute("hidden", !isRideActive);
+  activateSceneView(view);
 };
 
 showRouteViewButton.addEventListener("click", () => showView("route"));
 showMapViewButton.addEventListener("click", () => showView("map"));
+showRideViewButton.addEventListener("click", () => showView("ride"));
 
-const viewTabs = [showRouteViewButton, showMapViewButton] as const;
 viewTabs.forEach((tab, index) => {
   tab.addEventListener("keydown", (event: KeyboardEvent) => {
     const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown"
@@ -128,7 +160,7 @@ viewTabs.forEach((tab, index) => {
     if (nextIndex !== null) {
       event.preventDefault();
       viewTabs[nextIndex].focus();
-      showView(nextIndex === 0 ? "route" : "map");
+      showView((["route", "map", "ride"] as const)[nextIndex]);
     }
   });
 });
@@ -225,6 +257,10 @@ const initializeViewer = async (): Promise<void> => {
     enableStandardVertexColors();
     const scene = createSceneContext(engine);
     const camera = createRouteCamera();
+    const rideCamera: FreeCamera = createFreeCamera({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+    rideCamera.fov = 1.08;
+    rideCamera.nearPlane = 0.01;
+    rideCamera.farPlane = 10_000;
     const terrainMap = createTerrainMap(mapContainer, mapError);
     let trackProjection: TrackProjection | null = null;
     let activeGeometry: TrackMeshData | null = null;
@@ -234,10 +270,19 @@ const initializeViewer = async (): Promise<void> => {
     let syncingMapFromRoute = false;
     let updateTerrainForZoom = (): void => {};
     let profileView: ReturnType<typeof createTrackProfileView> | null = null;
+    let rideDistanceMeters = 0;
+    let rideIsPlaying = false;
+    let updateRideCamera = (): void => {};
+    let setRideDistance = (_distanceMeters: number): void => {};
+    let clearSceneHover = (): void => {};
 
     const focusTrackPoint = (index: number, metersPerPixel?: number): void => {
       const point = activeGeometry?.routePoints[index];
       if (point !== undefined) {
+        if (activeView === "ride") {
+          setRideDistance(point.distanceMeters);
+          return;
+        }
         const viewport = canvas.getBoundingClientRect();
         const currentMetersPerPixel = trackProjection === null
           ? null
@@ -290,7 +335,7 @@ const initializeViewer = async (): Promise<void> => {
     });
 
     const syncRouteFromMap = (): void => {
-      if (trackProjection === null || syncingMapFromRoute) {
+      if (activeView === "ride" || trackProjection === null || syncingMapFromRoute) {
         return;
       }
 
@@ -326,7 +371,7 @@ const initializeViewer = async (): Promise<void> => {
     terrainMap.map.on("move", syncRouteFromMap);
 
     const syncMapFromRoute = (): void => {
-      if (trackProjection !== null && terrainMap.map.isStyleLoaded()) {
+      if (activeView !== "ride" && trackProjection !== null && terrainMap.map.isStyleLoaded()) {
         const { width, height } = canvas.getBoundingClientRect();
         const mapView = getMapCameraView(camera, { width, height }, trackProjection);
         if (mapView !== null) {
@@ -350,7 +395,9 @@ const initializeViewer = async (): Promise<void> => {
         }
       }
 
-      updateTerrainForZoom();
+      if (activeView !== "ride") {
+        updateTerrainForZoom();
+      }
       requestAnimationFrame(syncMapFromRoute);
     };
     requestAnimationFrame(syncMapFromRoute);
@@ -358,14 +405,34 @@ const initializeViewer = async (): Promise<void> => {
     const mapResizeObserver = new ResizeObserver(() => terrainMap.map.resize());
     mapResizeObserver.observe(mapContainer);
 
-    scene.clearColor = { r: 0.52, g: 0.57, b: 0.56, a: 1 };
+    scene.clearColor = { r: 0.55, g: 0.75, b: 0.87, a: 1 };
+    setFog(scene, { mode: 3, density: 0, start: 60, end: 180, color: [0.55, 0.75, 0.87] });
     scene.camera = camera;
+    activateSceneView = (view): void => {
+      scene.camera = view === "ride" ? rideCamera : camera;
+      canvas.style.pointerEvents = view === "ride" ? "none" : "";
+      clearSceneHover();
+      if (view === "ride") {
+        updateRideCamera();
+      }
+      updateTerrainForZoom();
+    };
+    activateSceneView(activeView);
     attachRouteCameraControls(camera, canvas, scene);
     addToScene(scene, createHemisphericLight([0, 1, 0], 1));
+    addToScene(scene, createDirectionalLight([-0.4, -1, -0.25], 1.25));
     const hoverOverlay = createTrackHoverOverlay(engine, scene, camera, canvas);
     const profileHoverCard = createTrackHoverCard(viewer);
+    clearSceneHover = (): void => {
+      hoverOverlay.hide();
+      profileHoverCard.hide();
+    };
     profileView = createTrackProfileView(profileCanvas, (hover) => {
       if (hover === null) {
+        profileHoverCard.hide();
+        return;
+      }
+      if (activeView === "ride") {
         profileHoverCard.hide();
         return;
       }
@@ -389,6 +456,57 @@ const initializeViewer = async (): Promise<void> => {
       profileHoverCard.setLayout(layout, { x: 0, y: 0 });
       profileHoverCard.show();
     }, focusTrackPoint);
+    const updateRideReadout = (): void => {
+      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
+      rideProgress.value = String(totalDistance > 0 ? Math.round((rideDistanceMeters / totalDistance) * 1000) : 0);
+      rideReadout.textContent = totalDistance > 0
+        ? `${(rideDistanceMeters / 1000).toFixed(2)} / ${(totalDistance / 1000).toFixed(2)} km · ${rideSpeed.value} km/h`
+        : "Load a route to ride";
+      profileView?.setRiderDistance(totalDistance > 0 ? rideDistanceMeters : null);
+    };
+    updateRideCamera = (): void => {
+      if (activeGeometry === null) {
+        return;
+      }
+      const pose = getRideCameraPose(
+        activeGeometry.routePoints,
+        rideDistanceMeters,
+        activeGeometry.projection.sceneUnitsPerMeter,
+      );
+      rideCamera.position.set(pose.position.x, pose.position.y, pose.position.z);
+      rideCamera.target.set(pose.target.x, pose.target.y, pose.target.z);
+    };
+    setRideDistance = (distanceMeters): void => {
+      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
+      if (totalDistance === undefined) {
+        return;
+      }
+      rideDistanceMeters = Math.max(0, Math.min(totalDistance, distanceMeters));
+      updateRideCamera();
+      updateRideReadout();
+    };
+    ridePlayButton.addEventListener("click", () => {
+      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
+      if (totalDistance === undefined) {
+        return;
+      }
+      if (rideIsPlaying) {
+        rideIsPlaying = false;
+      } else {
+        if (rideDistanceMeters >= totalDistance) {
+          setRideDistance(0);
+        }
+        rideIsPlaying = true;
+      }
+      ridePlayButton.textContent = rideIsPlaying ? "Pause ride" : rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+    });
+    rideProgress.addEventListener("input", () => {
+      rideIsPlaying = false;
+      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
+      setRideDistance((Number(rideProgress.value) / 1000) * totalDistance);
+      ridePlayButton.textContent = rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+    });
+    rideSpeed.addEventListener("change", updateRideReadout);
     const profileResizeObserver = new ResizeObserver(() => profileView.refresh());
     profileResizeObserver.observe(profileCanvas.parentElement ?? profileCanvas);
     canvas.addEventListener("dblclick", (event: MouseEvent) => {
@@ -423,6 +541,28 @@ const initializeViewer = async (): Promise<void> => {
     canvas.addEventListener("pointerleave", hoverOverlay.hide);
     await registerScene(scene);
     await startEngine(engine);
+    let lastRideFrameTime: number | null = null;
+    let lastRideHudTime = 0;
+    const advanceRide = (now: number): void => {
+      const elapsedSeconds = lastRideFrameTime === null ? 0 : Math.min(0.1, Math.max(0, now - lastRideFrameTime) / 1000);
+      lastRideFrameTime = now;
+      if (activeView === "ride" && rideIsPlaying && activeGeometry !== null) {
+        const totalDistance = activeGeometry.routePoints.at(-1)?.distanceMeters ?? 0;
+        rideDistanceMeters = Math.min(totalDistance, rideDistanceMeters + elapsedSeconds * (Number(rideSpeed.value) / 3.6));
+        if (rideDistanceMeters >= totalDistance) {
+          rideIsPlaying = false;
+        }
+        updateRideCamera();
+        if (now - lastRideHudTime >= 100 || !rideIsPlaying) {
+          updateRideReadout();
+          lastRideHudTime = now;
+          ridePlayButton.textContent = rideIsPlaying ? "Pause ride" : rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+        }
+        updateTerrainForZoom();
+      }
+      requestAnimationFrame(advanceRide);
+    };
+    requestAnimationFrame(advanceRide);
     const refreshHoverOverlay = (): void => {
       hoverOverlay.refresh();
       requestAnimationFrame(refreshHoverOverlay);
@@ -468,6 +608,13 @@ const initializeViewer = async (): Promise<void> => {
       activeTrackLongitudes = getContinuousLongitudes(track.points);
       activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
       profileView.setRoute(geometry.routePoints);
+      rideDistanceMeters = 0;
+      rideIsPlaying = false;
+      rideProgress.disabled = false;
+      ridePlayButton.disabled = false;
+      rideSpeed.disabled = false;
+      ridePlayButton.textContent = "Start ride";
+      setRideDistance(0);
       terrainMap.setRoute(track.points);
       const gradientCurtain = createGradientCurtainMeshData(geometry);
       const cameraBounds = Object.freeze({
@@ -477,11 +624,20 @@ const initializeViewer = async (): Promise<void> => {
       const gradientCurtainMeshes = gradientCurtain.indices.length === 0
         ? []
         : [createGradientCurtainMesh(engine, gradientCurtain)];
+      const roadMarkings = createRideRoadMarkings(
+        geometry.routePoints,
+        geometry.roadHalfWidth,
+        geometry.projection.sceneUnitsPerMeter,
+      );
+      const roadMarkingMeshes = roadMarkings.indices.length === 0
+        ? []
+        : [createLandscapeMesh(engine, "ride-road-markings", roadMarkings, [1, 1, 1], [1, 1, 1])];
       const meshes: Mesh[] = [
         createRoadMesh(engine, "gpx-road", geometry, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
         createRoadMesh(engine, "gpx-road-left", geometry.leftSide, [0.08, 0.68, 0.16], [0.015, 0.1, 0.025]),
         createRoadMesh(engine, "gpx-road-right", geometry.rightSide, [0.78, 0.08, 0.06], [0.12, 0.015, 0.012]),
         createRoadMesh(engine, "gpx-road-surface", geometry.topSurface, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
+        ...roadMarkingMeshes,
         ...gradientCurtainMeshes,
       ];
 
@@ -506,6 +662,15 @@ const initializeViewer = async (): Promise<void> => {
         const { width, height } = canvas.getBoundingClientRect();
         if (trackProjection === null) {
           return null;
+        }
+        if (activeView === "ride") {
+          const sceneUnitsPerMeter = trackProjection.sceneUnitsPerMeter;
+          const pose = getRideCameraPose(geometry.routePoints, rideDistanceMeters, sceneUnitsPerMeter);
+          const latitude = trackProjection.centerLatitude + pose.position.z / (111_320 * sceneUnitsPerMeter);
+          const longitude = trackProjection.centerLongitude + pose.position.x / (
+            111_320 * sceneUnitsPerMeter * Math.max(1e-8, Math.abs(trackProjection.longitudeScale))
+          );
+          return { center: [longitude, latitude], zoom: 15, width, height, pitch: 0 };
         }
         const view = getMapCameraView(camera, { width, height }, trackProjection);
         return view === null ? null : { center: view.center, zoom: view.zoom, width, height, pitch: view.pitch };

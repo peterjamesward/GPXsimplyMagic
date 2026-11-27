@@ -315,8 +315,13 @@ export const createTerrainScenery = (
   const random = createRandom(seed);
   const scale = geometry.projection.sceneUnitsPerMeter;
   const findRouteConstraints = createRouteConstraintIndex(geometry.routePoints);
+  const firstRoutePoint = geometry.routePoints[0];
+  const lastRoutePoint = geometry.routePoints[geometry.routePoints.length - 1];
   const areaMeters = ((terrain.bounds.maxX - terrain.bounds.minX) * (terrain.bounds.maxZ - terrain.bounds.minZ)) / (scale * scale);
-  const targetTreeCount = Math.max(24, Math.min(240, Math.round(areaMeters / 1_100)));
+  const routeStartDistance = firstRoutePoint.distanceMeters;
+  const routeEndDistance = lastRoutePoint.distanceMeters;
+  const routeLengthMeters = Math.max(0, routeEndDistance - routeStartDistance);
+  const targetTreeCount = Math.max(24, Math.min(800, Math.round(routeLengthMeters / 30)));
   const targetBuildingCount = Math.max(1, Math.min(24, Math.round(areaMeters / 22_000)));
   const planted: Placement[] = [];
   const buildings: Placement[] = [];
@@ -325,10 +330,41 @@ export const createTerrainScenery = (
   const hasMappedBuildings = features.buildings.length > 0;
   const buildingWalls = createMutableMeshPart(hasMappedBuildings);
   const buildingRoofs = createMutableMeshPart(hasMappedBuildings);
-  const createPlacement = (): Placement => Object.freeze({
-    x: terrain.bounds.minX + random() * (terrain.bounds.maxX - terrain.bounds.minX),
-    z: terrain.bounds.minZ + random() * (terrain.bounds.maxZ - terrain.bounds.minZ),
-  });
+  const getRoutePositionAtDistance = (distanceMeters: number): Placement => {
+    let low = 0;
+    let high = geometry.routePoints.length - 1;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (geometry.routePoints[middle].distanceMeters < distanceMeters) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    const end = geometry.routePoints[low];
+    const start = geometry.routePoints[Math.max(0, low - 1)];
+    const distanceSpan = end.distanceMeters - start.distanceMeters;
+    const progress = distanceSpan > 0 ? (distanceMeters - start.distanceMeters) / distanceSpan : 0;
+    return Object.freeze({
+      x: start.x + (end.x - start.x) * progress,
+      z: start.z + (end.z - start.z) * progress,
+    });
+  };
+  const createPlacement = (): Placement => {
+    if (routeLengthMeters > 0 && random() < 0.85) {
+      const routePosition = getRoutePositionAtDistance(routeStartDistance + random() * routeLengthMeters);
+      const offsetMeters = 12 + random() * 110;
+      const angle = random() * Math.PI * 2;
+      return Object.freeze({
+        x: Math.max(terrain.bounds.minX, Math.min(terrain.bounds.maxX, routePosition.x + Math.cos(angle) * offsetMeters * scale)),
+        z: Math.max(terrain.bounds.minZ, Math.min(terrain.bounds.maxZ, routePosition.z + Math.sin(angle) * offsetMeters * scale)),
+      });
+    }
+    return Object.freeze({
+      x: terrain.bounds.minX + random() * (terrain.bounds.maxX - terrain.bounds.minX),
+      z: terrain.bounds.minZ + random() * (terrain.bounds.maxZ - terrain.bounds.minZ),
+    });
+  };
 
   for (let attempt = 0; planted.length < targetTreeCount && attempt < targetTreeCount * 80; attempt += 1) {
     const placement = createPlacement();

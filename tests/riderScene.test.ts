@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import { createTrackMeshData } from "../src/trackGeometry";
+import { createRideRoadMarkings, getRideCameraPose } from "../src/riderScene";
+
+const geometry = createTrackMeshData([
+  { latitude: 0, longitude: 0, elevationMeters: 100 },
+  { latitude: 0, longitude: 0.001, elevationMeters: 110 },
+  { latitude: 0.001, longitude: 0.001, elevationMeters: 90 },
+]);
+
+describe("first-person ride scene", () => {
+  it("interpolates the rider position by route distance rather than point index", () => {
+    const [start, middle, end] = geometry.routePoints;
+    const halfwayDistance = (start.distanceMeters + middle.distanceMeters) / 2;
+    const pose = getRideCameraPose(geometry.routePoints, halfwayDistance, geometry.projection.sceneUnitsPerMeter);
+
+    expect(pose.position.x).toBeCloseTo((start.x + middle.x) / 2);
+    expect(pose.position.z).toBeCloseTo((start.z + middle.z) / 2);
+    expect(pose.position.y).toBeCloseTo((start.y + middle.y) / 2 + 1.65 * geometry.projection.sceneUnitsPerMeter * 2);
+    expect(pose.target.x).toBeGreaterThan(pose.position.x);
+    expect(end.distanceMeters).toBeGreaterThan(middle.distanceMeters);
+  });
+
+  it("clamps the ride camera to the route and looks back from its endpoint", () => {
+    const last = geometry.routePoints[geometry.routePoints.length - 1];
+    if (last === undefined) {
+      throw new Error("The test route must contain points.");
+    }
+    const pose = getRideCameraPose(geometry.routePoints, Number.MAX_SAFE_INTEGER, geometry.projection.sceneUnitsPerMeter);
+
+    expect(pose.position.x).toBeCloseTo(last.x);
+    expect(pose.position.z).toBeCloseTo(last.z);
+    expect(pose.target.z).toBeLessThan(pose.position.z);
+  });
+
+  it("keeps a forward camera heading when all route points are duplicated", () => {
+    const duplicateRoute = createTrackMeshData([
+      { latitude: 0, longitude: 0, elevationMeters: 100 },
+      { latitude: 0, longitude: 0, elevationMeters: 100 },
+    ]);
+    const pose = getRideCameraPose(duplicateRoute.routePoints, 0, duplicateRoute.projection.sceneUnitsPerMeter);
+
+    expect(pose.target.z).toBeGreaterThan(pose.position.z);
+  });
+
+  it("builds colored road-edge and broken center markings above the route surface", () => {
+    const markings = createRideRoadMarkings(geometry.routePoints, geometry.roadHalfWidth, geometry.projection.sceneUnitsPerMeter);
+    const elevations = geometry.routePoints.map((point) => point.y);
+
+    expect(markings.indices.length).toBeGreaterThan(0);
+    expect(markings.positions.length).toBe(markings.normals.length);
+    expect(markings.positions.some((value, index) => index % 3 === 1 && elevations.some((elevation) => value > elevation))).toBe(true);
+    expect(Object.isFrozen(markings)).toBe(true);
+  });
+});
