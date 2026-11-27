@@ -101,7 +101,7 @@ export const createStylizedGrassPlacements = (
 
     if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) continue;
     if (routeIndex(x, z, 0).nearest.distance < minimumRoadDistance) continue;
-    if (landUseIndex.getCategoryAt(x, z) === "water") continue;
+    if (!landUseIndex.canPlaceGrassAt(x, z)) continue;
 
     placements.push(Object.freeze({
       x,

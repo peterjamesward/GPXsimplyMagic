@@ -584,7 +584,7 @@ const initializeViewer = async (): Promise<void> => {
         gridSize: number,
         fitCamera: boolean,
       ): void => {
-        const landUseIndex = createLandUseSpatialIndex(features.areas);
+        const landUseIndex = createLandUseSpatialIndex(features.areas, features.buildings);
         const terrainColorAt = features.areas.length === 0
           ? undefined
           : (x: number, z: number) => landUseIndex.getColorAt(x, z) ?? [0.3, 0.4, 0.24] as const;

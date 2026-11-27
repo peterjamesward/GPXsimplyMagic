@@ -703,7 +703,7 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
   let activeGeometry: TrackMeshData | null = null;
   let activeFeatures: OpenStreetMapFeatures = emptyOpenStreetMapFeatures;
   let activeElevation: TerrainDemData | null = null;
-  let landUseIndex = createLandUseSpatialIndex(activeFeatures.areas);
+  let landUseIndex = createLandUseSpatialIndex(activeFeatures.areas, activeFeatures.buildings);
   let routeIndex: ReturnType<typeof createRouteConstraintIndex> | null = null;
   let routeGroup: THREE.Group | null = null;
   let currentPose: RideCameraPose | null = null;
@@ -895,7 +895,7 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
     setEnvironment: (elevation: TerrainDemData | null, features: OpenStreetMapFeatures): void => {
       activeElevation = elevation;
       activeFeatures = features;
-      landUseIndex = createLandUseSpatialIndex(features.areas);
+      landUseIndex = createLandUseSpatialIndex(features.areas, features.buildings);
       dataRevision += 1;
       lastTerrainPlan = "";
       syncChunks();

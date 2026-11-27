@@ -431,6 +431,7 @@ export type LandUseSpatialIndex = Readonly<{
   getCategoryAt: (x: number, z: number) => LandUseCategory | null;
   getColorAt: (x: number, z: number) => MapColor | null;
   canPlaceTreeAt: (x: number, z: number) => boolean;
+  canPlaceGrassAt: (x: number, z: number) => boolean;
 }>;
 
 type IndexedArea = Readonly<{
@@ -491,7 +492,10 @@ const isInsideBounds = (
 ): boolean =>
   x >= bounds.minX && x <= bounds.maxX && z >= bounds.minZ && z <= bounds.maxZ;
 
-export const createLandUseSpatialIndex = (areas: readonly OpenStreetMapArea[]): LandUseSpatialIndex => {
+export const createLandUseSpatialIndex = (
+  areas: readonly OpenStreetMapArea[],
+  buildings: readonly OpenStreetMapBuilding[] = [],
+): LandUseSpatialIndex => {
   const indexedAreas = areas.map((area, index): IndexedArea => Object.freeze({
     index,
     area,
@@ -499,9 +503,38 @@ export const createLandUseSpatialIndex = (areas: readonly OpenStreetMapArea[]): 
     centerZ: (area.bounds.minZ + area.bounds.maxZ) / 2,
   }));
   const root = indexedAreas.length === 0 ? null : buildAreaIndex(indexedAreas);
+  const buildingAreas = buildings.flatMap((building, index): readonly IndexedArea[] => {
+    if (building.points.length < 3 || building.points.some(({ x, z }) => !Number.isFinite(x) || !Number.isFinite(z))) {
+      return [];
+    }
+    const bounds = building.points.reduce((result, point) => ({
+      minX: Math.min(result.minX, point.x),
+      maxX: Math.max(result.maxX, point.x),
+      minZ: Math.min(result.minZ, point.z),
+      maxZ: Math.max(result.maxZ, point.z),
+    }), {
+      minX: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      minZ: Number.POSITIVE_INFINITY,
+      maxZ: Number.NEGATIVE_INFINITY,
+    });
+    const area: OpenStreetMapArea = Object.freeze({
+      category: "industrial",
+      treesAllowed: false,
+      points: building.points,
+      bounds: Object.freeze(bounds),
+    });
+    return [Object.freeze({
+      index,
+      area,
+      centerX: (bounds.minX + bounds.maxX) / 2,
+      centerZ: (bounds.minZ + bounds.maxZ) / 2,
+    })];
+  });
+  const buildingRoot = buildingAreas.length === 0 ? null : buildAreaIndex(buildingAreas);
 
-  const getSelectedAreaAt = (x: number, z: number): SelectedArea | null => {
-    if (root === null || !Number.isFinite(x) || !Number.isFinite(z)) {
+  const getSelectedAreaAt = (x: number, z: number, areaRoot = root): SelectedArea | null => {
+    if (areaRoot === null || !Number.isFinite(x) || !Number.isFinite(z)) {
       return null;
     }
 
@@ -535,7 +568,7 @@ export const createLandUseSpatialIndex = (areas: readonly OpenStreetMapArea[]): 
       visit(second);
     };
 
-    visit(root);
+    visit(areaRoot);
     return selected;
   };
 
@@ -546,5 +579,10 @@ export const createLandUseSpatialIndex = (areas: readonly OpenStreetMapArea[]): 
       return category === undefined ? null : landUseStyles[category].color;
     },
     canPlaceTreeAt: (x, z) => getSelectedAreaAt(x, z)?.area.treesAllowed ?? true,
+    canPlaceGrassAt: (x, z) => {
+      const category = getSelectedAreaAt(x, z)?.area.category;
+      return category !== "water" && category !== "residential" && category !== "industrial" &&
+        getSelectedAreaAt(x, z, buildingRoot) === null;
+    },
   });
 };

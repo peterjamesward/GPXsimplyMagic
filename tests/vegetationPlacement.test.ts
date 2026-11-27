@@ -68,4 +68,42 @@ describe("stylized vegetation placement", () => {
 
     expect(placements).toHaveLength(0);
   });
+
+  it("does not plant grass in mapped built-up land use", () => {
+    const { bounds } = terrain;
+    const residentialArea: OpenStreetMapArea = Object.freeze({
+      category: "residential",
+      treesAllowed: false,
+      points: Object.freeze([
+        Object.freeze({ x: bounds.minX, z: bounds.minZ }),
+        Object.freeze({ x: bounds.maxX, z: bounds.minZ }),
+        Object.freeze({ x: bounds.maxX, z: bounds.maxZ }),
+        Object.freeze({ x: bounds.minX, z: bounds.maxZ }),
+        Object.freeze({ x: bounds.minX, z: bounds.minZ }),
+      ]),
+      bounds,
+    });
+    const landUse = createLandUseSpatialIndex([residentialArea]);
+
+    expect(createStylizedGrassPlacements(terrain, geometry, landUse, 42, 100, bounds, "area")).toHaveLength(0);
+  });
+
+  it("does not plant grass inside mapped building footprints", () => {
+    const { bounds } = terrain;
+    const building = Object.freeze({
+      points: Object.freeze([
+        Object.freeze({ x: bounds.minX, z: bounds.minZ }),
+        Object.freeze({ x: bounds.maxX, z: bounds.minZ }),
+        Object.freeze({ x: bounds.maxX, z: bounds.maxZ }),
+        Object.freeze({ x: bounds.minX, z: bounds.maxZ }),
+        Object.freeze({ x: bounds.minX, z: bounds.minZ }),
+      ]),
+      heightMeters: 8,
+      wallColor: Object.freeze([0.6, 0.5, 0.4] as const),
+      roofColor: Object.freeze([0.4, 0.2, 0.1] as const),
+    });
+    const landUse = createLandUseSpatialIndex([], [building]);
+
+    expect(createStylizedGrassPlacements(terrain, geometry, landUse, 42, 100, bounds, "area")).toHaveLength(0);
+  });
 });

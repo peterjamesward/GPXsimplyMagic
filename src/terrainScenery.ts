@@ -319,7 +319,7 @@ export const createTerrainScenery = (
   geometry: TrackMeshData,
   seed = 0x4b1d7e2a,
   features: OpenStreetMapFeatures = emptyOpenStreetMapFeatures,
-  landUseIndex: LandUseSpatialIndex = createLandUseSpatialIndex(features.areas),
+  landUseIndex: LandUseSpatialIndex = createLandUseSpatialIndex(features.areas, features.buildings),
 ): TerrainSceneryData => {
   const random = createRandom(seed);
   const scale = geometry.projection.sceneUnitsPerMeter;
