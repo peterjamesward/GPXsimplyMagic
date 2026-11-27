@@ -41,6 +41,14 @@ import {
 import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
 import { createRideRoadMarkings, getRideCameraPose, getRideViewportSize } from "./riderScene";
+import {
+  advanceRidePlayback,
+  createRidePlaybackState,
+  seekRidePlayback,
+  setRidePlaybackDistance,
+  setRidePlaybackPlaying,
+  type RidePlaybackState,
+} from "./ridePlayback";
 import type { RideSceneRenderer } from "./rideRenderer";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
@@ -167,13 +175,20 @@ const initializeViewer = async (): Promise<void> => {
     let syncingMapFromRoute = false;
     let updateTerrainForZoom = (): void => {};
     let profileView: ReturnType<typeof createTrackProfileView> | null = null;
-    let rideDistanceMeters = 0;
-    let rideIsPlaying = false;
+    let ridePlayback = createRidePlaybackState();
     let rideRenderer: RideSceneRenderer | null = null;
     let rideRendererLoad: Promise<void> | null = null;
     let updateRideCamera = (): void => {};
     let setRideDistance = (_distanceMeters: number): void => {};
     let clearSceneHover = (): void => {};
+
+    const updateRidePlayback = (playback: RidePlaybackState): void => {
+      const playbackChanged = playback.isPlaying !== ridePlayback.isPlaying;
+      ridePlayback = playback;
+      if (playbackChanged) {
+        rideRenderer?.setPlaybackPaused(!playback.isPlaying);
+      }
+    };
 
     const focusTrackPoint = (index: number, metersPerPixel?: number): void => {
       const point = activeGeometry?.routePoints[index];
@@ -316,7 +331,7 @@ const initializeViewer = async (): Promise<void> => {
             rideRenderer.setEnvironment(bestTerrainDem, activeTerrainFeatures);
             updateRideCamera();
           }
-          rideRenderer.setPlaybackPaused(!rideIsPlaying);
+          rideRenderer.setPlaybackPaused(!ridePlayback.isPlaying);
           rideRenderer.setActive(activeView === "ride");
         }).catch((error: unknown) => {
           engineError.hidden = false;
@@ -373,11 +388,11 @@ const initializeViewer = async (): Promise<void> => {
     }, focusTrackPoint);
     const updateRideReadout = (): void => {
       const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
-      rideProgress.value = String(totalDistance > 0 ? Math.round((rideDistanceMeters / totalDistance) * 1000) : 0);
+      rideProgress.value = String(totalDistance > 0 ? Math.round((ridePlayback.distanceMeters / totalDistance) * 1000) : 0);
       rideReadout.textContent = totalDistance > 0
-        ? `${(rideDistanceMeters / 1000).toFixed(2)} / ${(totalDistance / 1000).toFixed(2)} km · ${rideSpeed.value} km/h`
+        ? `${(ridePlayback.distanceMeters / 1000).toFixed(2)} / ${(totalDistance / 1000).toFixed(2)} km · ${rideSpeed.value} km/h`
         : "Load a route to ride";
-      profileView?.setRiderDistance(totalDistance > 0 ? rideDistanceMeters : null);
+      profileView?.setRiderDistance(totalDistance > 0 ? ridePlayback.distanceMeters : null);
     };
     updateRideCamera = (): void => {
       if (activeGeometry === null) {
@@ -385,7 +400,7 @@ const initializeViewer = async (): Promise<void> => {
       }
       const pose = getRideCameraPose(
         activeGeometry.routePoints,
-        rideDistanceMeters,
+        ridePlayback.distanceMeters,
         activeGeometry.projection.sceneUnitsPerMeter,
       );
       rideRenderer?.setCameraPose(pose);
@@ -395,34 +410,32 @@ const initializeViewer = async (): Promise<void> => {
       if (totalDistance === undefined) {
         return;
       }
-      rideDistanceMeters = Math.max(0, Math.min(totalDistance, distanceMeters));
+      updateRidePlayback(setRidePlaybackDistance(ridePlayback, distanceMeters, totalDistance));
       updateRideCamera();
       updateRideReadout();
     };
     const setRidePlaying = (isPlaying: boolean): void => {
-      rideIsPlaying = isPlaying;
-      rideRenderer?.setPlaybackPaused(!isPlaying);
+      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
+      updateRidePlayback(setRidePlaybackPlaying(ridePlayback, isPlaying, totalDistance));
     };
     ridePlayButton.addEventListener("click", () => {
       const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
       if (totalDistance === undefined) {
         return;
       }
-      if (rideIsPlaying) {
+      if (ridePlayback.isPlaying) {
         setRidePlaying(false);
       } else {
-        if (rideDistanceMeters >= totalDistance) {
-          setRideDistance(0);
-        }
         setRidePlaying(true);
       }
-      ridePlayButton.textContent = rideIsPlaying ? "Pause ride" : rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+      ridePlayButton.textContent = ridePlayback.isPlaying ? "Pause ride" : ridePlayback.distanceMeters >= totalDistance ? "Ride again" : "Resume ride";
     });
     rideProgress.addEventListener("input", () => {
-      setRidePlaying(false);
       const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
-      setRideDistance((Number(rideProgress.value) / 1000) * totalDistance);
-      ridePlayButton.textContent = rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+      updateRidePlayback(seekRidePlayback(ridePlayback, (Number(rideProgress.value) / 1000) * totalDistance, totalDistance));
+      updateRideCamera();
+      updateRideReadout();
+      ridePlayButton.textContent = ridePlayback.distanceMeters >= totalDistance ? "Ride again" : "Resume ride";
     });
     rideSpeed.addEventListener("change", updateRideReadout);
     const profileResizeObserver = new ResizeObserver(() => profileView.refresh());
@@ -456,17 +469,14 @@ const initializeViewer = async (): Promise<void> => {
     const advanceRide = (now: number): void => {
       const elapsedSeconds = lastRideFrameTime === null ? 0 : Math.min(0.1, Math.max(0, now - lastRideFrameTime) / 1000);
       lastRideFrameTime = now;
-      if (activeView === "ride" && rideIsPlaying && activeGeometry !== null) {
+      if (activeView === "ride" && ridePlayback.isPlaying && activeGeometry !== null) {
         const totalDistance = activeGeometry.routePoints.at(-1)?.distanceMeters ?? 0;
-        rideDistanceMeters = Math.min(totalDistance, rideDistanceMeters + elapsedSeconds * (Number(rideSpeed.value) / 3.6));
-        if (rideDistanceMeters >= totalDistance) {
-          setRidePlaying(false);
-        }
+        updateRidePlayback(advanceRidePlayback(ridePlayback, elapsedSeconds, Number(rideSpeed.value), totalDistance));
         updateRideCamera();
-        if (now - lastRideHudTime >= 100 || !rideIsPlaying) {
+        if (now - lastRideHudTime >= 100 || !ridePlayback.isPlaying) {
           updateRideReadout();
           lastRideHudTime = now;
-          ridePlayButton.textContent = rideIsPlaying ? "Pause ride" : rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+          ridePlayButton.textContent = ridePlayback.isPlaying ? "Pause ride" : ridePlayback.distanceMeters >= totalDistance ? "Ride again" : "Resume ride";
         }
         updateTerrainForZoom();
       }
@@ -515,7 +525,7 @@ const initializeViewer = async (): Promise<void> => {
       activeTrackLongitudes = getContinuousLongitudes(track.points);
       activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
       profileView.setRoute(geometry.routePoints);
-      rideDistanceMeters = 0;
+      updateRidePlayback(createRidePlaybackState());
       setRidePlaying(false);
       rideProgress.disabled = false;
       ridePlayButton.disabled = false;
@@ -558,7 +568,7 @@ const initializeViewer = async (): Promise<void> => {
         const { width, height } = viewport;
         if (activeView === "ride") {
           const sceneUnitsPerMeter = trackProjection.sceneUnitsPerMeter;
-          const pose = getRideCameraPose(geometry.routePoints, rideDistanceMeters, sceneUnitsPerMeter);
+          const pose = getRideCameraPose(geometry.routePoints, ridePlayback.distanceMeters, sceneUnitsPerMeter);
           const latitude = trackProjection.centerLatitude + pose.position.z / (111_320 * sceneUnitsPerMeter);
           const longitude = trackProjection.centerLongitude + pose.position.x / (
             111_320 * sceneUnitsPerMeter * Math.max(1e-8, Math.abs(trackProjection.longitudeScale))
