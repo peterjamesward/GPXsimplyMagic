@@ -37,12 +37,13 @@
               <section id="route-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-route-view" aria-label="Babylon 3D route view" aria-hidden="false">
                 <div id="route-view" class="viewer">
                   <canvas id="route-canvas" aria-label="Interactive 3D cycling route with terrain, trees, and buildings"></canvas>
+                  <canvas id="ride-canvas" aria-label="First-person cycling scene with streamed terrain, trees, and mapped buildings" hidden></canvas>
                   <label id="terrain-control" class="terrain-control">
                     <input id="show-terrain" type="checkbox" role="switch" aria-label="Show procedural terrain" checked />
                     <span>Procedural terrain</span>
                   </label>
                   <div id="engine-error" class="engine-error" hidden></div>
-                  <a class="data-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Map data © OpenStreetMap contributors</a>
+                  <a class="data-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Land cover and buildings © OpenStreetMap contributors · Elevation © AWS Terrain Tiles</a>
                   <div id="ride-controls" class="ride-controls" hidden>
                     <button id="ride-play" type="button" disabled>Start ride</button>
                     <label class="ride-seek" for="ride-progress"><span class="visually-hidden">Ride position along route</span><input id="ride-progress" type="range" min="0" max="1000" value="0" disabled /></label>

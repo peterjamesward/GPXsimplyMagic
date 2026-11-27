@@ -40,6 +40,7 @@ describe("OpenStreetMap route features", () => {
     expect(query).toContain("[timeout:20]");
     expect(query).toContain('way["natural"~');
     expect(query).toContain('way["building"]');
+    expect(query).toContain('way["highway"~');
     expect(query).toContain("out geom");
     expect(query).toContain("1.000000,2.000000,3.000000,4.000000");
   });
@@ -94,6 +95,12 @@ describe("OpenStreetMap route features", () => {
           tags: { building: "house", height: "12.5 m", "building:colour": "#cc8844", "roof:colour": "red" },
           geometry: box(20),
         },
+        {
+          type: "way",
+          id: 3,
+          tags: { highway: "residential", surface: "asphalt" },
+          geometry: box(100).slice(0, 2),
+        },
       ],
     }, geometry);
 
@@ -105,6 +112,10 @@ describe("OpenStreetMap route features", () => {
     expect(features.buildings[0].heightMeters).toBe(12.5);
     expect(features.buildings[0].wallColor).toEqual([204 / 255, 136 / 255, 68 / 255]);
     expect(features.buildings[0].roofColor).toEqual([168 / 255, 67 / 255, 53 / 255]);
+    expect(features.roads).toHaveLength(1);
+    expect(features.roads[0].highway).toBe("residential");
+    expect(features.roads[0].surface).toBe("asphalt");
+    expect(features.roads[0].points).toHaveLength(2);
     expect(Object.isFrozen(features)).toBe(true);
   });
 

@@ -11,6 +11,8 @@ export type TerrainMeshData = TrackMeshPart & Readonly<{
   sampleHeightAt: (x: number, z: number) => number;
 }>;
 
+export type TerrainChunkBounds = Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
+
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
 type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[]; colors?: number[] };
 type TerrainAreaBounds = Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
@@ -196,6 +198,107 @@ export const createTerrainMeshData = (
     indices: Object.freeze(mesh.indices),
     ...(mesh.colors === undefined ? {} : { colors: Object.freeze(mesh.colors) }),
     bounds: Object.freeze(bounds),
+    columns,
+    rows,
+    sampleHeightAt,
+  });
+};
+
+export const createTerrainChunkMeshData = (
+  geometry: TrackMeshData,
+  elevationAt: TerrainElevationSampler,
+  area: TerrainChunkBounds,
+  requestedGridSize = 17,
+  colorAt?: TerrainColorSampler,
+  clearanceCellDiagonalMeters?: number,
+): TerrainMeshData => {
+  if (
+    ![area.minX, area.maxX, area.minZ, area.maxZ, requestedGridSize, clearanceCellDiagonalMeters ?? 0].every(Number.isFinite) ||
+    area.maxX <= area.minX || area.maxZ <= area.minZ
+  ) {
+    throw new Error("Terrain chunk bounds must be finite and have positive area.");
+  }
+
+  const gridSize = Math.max(3, Math.min(65, Math.round(requestedGridSize)));
+  const columns = gridSize;
+  const rows = gridSize;
+  const width = area.maxX - area.minX;
+  const depth = area.maxZ - area.minZ;
+  const stepX = width / (columns - 1);
+  const stepZ = depth / (rows - 1);
+  const actualCellDiagonalMeters = Math.hypot(stepX, stepZ) / geometry.projection.sceneUnitsPerMeter;
+  const terrainCellDiagonalMeters = Math.max(actualCellDiagonalMeters, clearanceCellDiagonalMeters ?? 0);
+  const sampleHeight = createTerrainHeightSampler(
+    geometry,
+    elevationAt,
+    terrainCellDiagonalMeters,
+  );
+  const heights = Array.from({ length: columns * rows }, (_value, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    return sampleHeight(area.minX + stepX * column, area.minZ + stepZ * row);
+  });
+  const mesh = createMutableMeshPart();
+  if (colorAt !== undefined) {
+    mesh.colors = [];
+  }
+  const getHeight = (column: number, row: number): number => heights[row * columns + column];
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const left = Math.max(0, column - 1);
+      const right = Math.min(columns - 1, column + 1);
+      const top = Math.max(0, row - 1);
+      const bottom = Math.min(rows - 1, row + 1);
+      const deltaX = (getHeight(right, row) - getHeight(left, row)) / ((right - left) * stepX);
+      const deltaZ = (getHeight(column, bottom) - getHeight(column, top)) / ((bottom - top) * stepZ);
+      const normal = normalize({ x: -deltaX, y: 1, z: -deltaZ });
+      const x = area.minX + stepX * column;
+      const z = area.minZ + stepZ * row;
+      mesh.positions.push(x, getHeight(column, row), z);
+      mesh.normals.push(normal.x, normal.y, normal.z);
+      mesh.colors?.push(...(colorAt?.(x, z) ?? [0.3, 0.4, 0.24]), 1);
+    }
+  }
+
+  for (let row = 0; row < rows - 1; row += 1) {
+    for (let column = 0; column < columns - 1; column += 1) {
+      const topLeft = row * columns + column;
+      const topRight = topLeft + 1;
+      const bottomLeft = topLeft + columns;
+      const bottomRight = bottomLeft + 1;
+      mesh.indices.push(topLeft, bottomLeft, topRight, topRight, bottomLeft, bottomRight);
+    }
+  }
+
+  const bounds = Object.freeze({
+    minX: area.minX,
+    maxX: area.maxX,
+    minY: Math.min(...heights),
+    maxY: Math.max(...heights),
+    minZ: area.minZ,
+    maxZ: area.maxZ,
+  });
+  const sampleHeightAt = (x: number, z: number): number => {
+    const column = Math.max(0, Math.min(columns - 1, ((x - area.minX) / width) * (columns - 1)));
+    const row = Math.max(0, Math.min(rows - 1, ((z - area.minZ) / depth) * (rows - 1)));
+    const left = Math.floor(column);
+    const top = Math.floor(row);
+    const right = Math.min(columns - 1, left + 1);
+    const bottom = Math.min(rows - 1, top + 1);
+    const columnRatio = column - left;
+    const rowRatio = row - top;
+    const north = getHeight(left, top) * (1 - columnRatio) + getHeight(right, top) * columnRatio;
+    const south = getHeight(left, bottom) * (1 - columnRatio) + getHeight(right, bottom) * columnRatio;
+    return north * (1 - rowRatio) + south * rowRatio;
+  };
+
+  return Object.freeze({
+    positions: Object.freeze(mesh.positions),
+    normals: Object.freeze(mesh.normals),
+    indices: Object.freeze(mesh.indices),
+    ...(mesh.colors === undefined ? {} : { colors: Object.freeze(mesh.colors) }),
+    bounds,
     columns,
     rows,
     sampleHeightAt,

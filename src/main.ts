@@ -2,7 +2,6 @@ import {
   addToScene,
   createEngine,
   createDirectionalLight,
-  createFreeCamera,
   createHemisphericLight,
   createMeshFromData,
   createSceneContext,
@@ -14,7 +13,7 @@ import {
   setFog,
   startEngine,
 } from "@babylonjs/lite";
-import type { FreeCamera, Mesh } from "@babylonjs/lite";
+import type { Mesh } from "@babylonjs/lite";
 import {
   getMapCameraView,
   getRouteCameraMetersPerPixel,
@@ -59,7 +58,8 @@ import {
 } from "./terrainDem";
 import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
-import { createRideRoadMarkings, getRideCameraPose } from "./riderScene";
+import { createRideRoadMarkings, getRideCameraPose, getRideViewportSize } from "./riderScene";
+import type { RideSceneRenderer } from "./rideRenderer";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
 
@@ -69,6 +69,7 @@ const viewer = document.querySelector<HTMLElement>("#viewer");
 const showRouteViewButton = document.querySelector<HTMLButtonElement>("#show-route-view");
 const showMapViewButton = document.querySelector<HTMLButtonElement>("#show-map-view");
 const showRideViewButton = document.querySelector<HTMLButtonElement>("#show-ride-view");
+const rideCanvas = document.querySelector<HTMLCanvasElement>("#ride-canvas");
 const terrainControl = document.querySelector<HTMLElement>("#terrain-control");
 const terrainVisibilityToggle = document.querySelector<HTMLInputElement>("#show-terrain");
 const rideControls = document.querySelector<HTMLElement>("#ride-controls");
@@ -94,6 +95,7 @@ if (
   showRouteViewButton === null ||
   showMapViewButton === null ||
   showRideViewButton === null ||
+  rideCanvas === null ||
   terrainControl === null ||
   terrainVisibilityToggle === null ||
   rideControls === null ||
@@ -257,10 +259,6 @@ const initializeViewer = async (): Promise<void> => {
     enableStandardVertexColors();
     const scene = createSceneContext(engine);
     const camera = createRouteCamera();
-    const rideCamera: FreeCamera = createFreeCamera({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
-    rideCamera.fov = 1.08;
-    rideCamera.nearPlane = 0.01;
-    rideCamera.farPlane = 10_000;
     const terrainMap = createTerrainMap(mapContainer, mapError);
     let trackProjection: TrackProjection | null = null;
     let activeGeometry: TrackMeshData | null = null;
@@ -272,6 +270,8 @@ const initializeViewer = async (): Promise<void> => {
     let profileView: ReturnType<typeof createTrackProfileView> | null = null;
     let rideDistanceMeters = 0;
     let rideIsPlaying = false;
+    let rideRenderer: RideSceneRenderer | null = null;
+    let rideRendererLoad: Promise<void> | null = null;
     let updateRideCamera = (): void => {};
     let setRideDistance = (_distanceMeters: number): void => {};
     let clearSceneHover = (): void => {};
@@ -409,8 +409,29 @@ const initializeViewer = async (): Promise<void> => {
     setFog(scene, { mode: 3, density: 0, start: 60, end: 180, color: [0.55, 0.75, 0.87] });
     scene.camera = camera;
     activateSceneView = (view): void => {
-      scene.camera = view === "ride" ? rideCamera : camera;
-      canvas.style.pointerEvents = view === "ride" ? "none" : "";
+      scene.camera = camera;
+      const isRideActive = view === "ride";
+      canvas.hidden = isRideActive;
+      rideCanvas.hidden = !isRideActive;
+      if (isRideActive && rideRenderer === null && rideRendererLoad === null) {
+        rideRendererLoad = import("./rideRenderer").then(({ createRideRenderer }) => {
+          rideRenderer = createRideRenderer(rideCanvas);
+          if (activeGeometry !== null) {
+            rideRenderer.setRoute(activeGeometry);
+            rideRenderer.setEnvironment(bestTerrainDem, activeTerrainFeatures);
+            updateRideCamera();
+          }
+          rideRenderer.setActive(activeView === "ride");
+        }).catch((error: unknown) => {
+          engineError.hidden = false;
+          engineError.textContent = error instanceof Error
+            ? `The Ride renderer could not start: ${error.message}`
+            : "The Ride renderer could not start.";
+          rideRendererLoad = null;
+        });
+      } else {
+        rideRenderer?.setActive(isRideActive);
+      }
       clearSceneHover();
       if (view === "ride") {
         updateRideCamera();
@@ -473,8 +494,7 @@ const initializeViewer = async (): Promise<void> => {
         rideDistanceMeters,
         activeGeometry.projection.sceneUnitsPerMeter,
       );
-      rideCamera.position.set(pose.position.x, pose.position.y, pose.position.z);
-      rideCamera.target.set(pose.target.x, pose.target.y, pose.target.z);
+      rideRenderer?.setCameraPose(pose);
     };
     setRideDistance = (distanceMeters): void => {
       const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
@@ -604,6 +624,7 @@ const initializeViewer = async (): Promise<void> => {
       const geometry = createTrackMeshData(track.points);
       trackProjection = geometry.projection;
       activeGeometry = geometry;
+      rideRenderer?.setRoute(geometry);
       activeTrackPoints = track.points;
       activeTrackLongitudes = getContinuousLongitudes(track.points);
       activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
@@ -659,10 +680,15 @@ const initializeViewer = async (): Promise<void> => {
       });
       let fittedCamera = captureCamera();
       const currentTerrainView = (): TerrainView | null => {
-        const { width, height } = canvas.getBoundingClientRect();
-        if (trackProjection === null) {
+        const viewport = getRideViewportSize(
+          activeView,
+          canvas.getBoundingClientRect(),
+          rideCanvas.getBoundingClientRect(),
+        );
+        if (trackProjection === null || viewport === null) {
           return null;
         }
+        const { width, height } = viewport;
         if (activeView === "ride") {
           const sceneUnitsPerMeter = trackProjection.sceneUnitsPerMeter;
           const pose = getRideCameraPose(geometry.routePoints, rideDistanceMeters, sceneUnitsPerMeter);
@@ -714,6 +740,7 @@ const initializeViewer = async (): Promise<void> => {
           ...activeMeshes.filter((mesh) => !previousLandscapeMeshes.includes(mesh)),
           ...landscapeMeshes,
         ];
+        rideRenderer?.setEnvironment(elevationData, features);
 
         const cameraUnchanged =
           Math.abs(camera.alpha - fittedCamera.alpha) < 1e-6 &&

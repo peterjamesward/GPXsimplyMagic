@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTrackMeshData } from "../src/trackGeometry";
-import { createRideRoadMarkings, getRideCameraPose } from "../src/riderScene";
+import { createRideRoadMarkings, getRideCameraPose, getRideTerrainChunkPlan, getRideViewportSize } from "../src/riderScene";
 
 const geometry = createTrackMeshData([
   { latitude: 0, longitude: 0, elevationMeters: 100 },
@@ -9,6 +9,22 @@ const geometry = createTrackMeshData([
 ]);
 
 describe("first-person ride scene", () => {
+  it("uses the visible Ride canvas dimensions instead of the hidden route canvas", () => {
+    expect(getRideViewportSize(
+      "ride",
+      { width: 0, height: 0 },
+      { width: 800, height: 450 },
+    )).toEqual({ width: 800, height: 450 });
+  });
+
+  it("skips terrain updates when the active view has no measurable viewport", () => {
+    expect(getRideViewportSize(
+      "ride",
+      { width: 800, height: 450 },
+      { width: 0, height: 0 },
+    )).toBeNull();
+  });
+
   it("interpolates the rider position by route distance rather than point index", () => {
     const [start, middle, end] = geometry.routePoints;
     const halfwayDistance = (start.distanceMeters + middle.distanceMeters) / 2;
@@ -51,5 +67,30 @@ describe("first-person ride scene", () => {
     expect(markings.positions.length).toBe(markings.normals.length);
     expect(markings.positions.some((value, index) => index % 3 === 1 && elevations.some((elevation) => value > elevation))).toBe(true);
     expect(Object.isFrozen(markings)).toBe(true);
+  });
+
+  it("streams terrain chunks ahead of the rider and assigns progressively coarser LOD", () => {
+    const plan = getRideTerrainChunkPlan(
+      { x: 0, z: 0 },
+      { x: 1, z: 0 },
+      1,
+      160,
+      560,
+    );
+
+    expect(plan.length).toBeGreaterThan(10);
+    expect(plan.length).toBeLessThanOrEqual(48);
+    expect(plan.some((chunk) => chunk.gridSize === 33)).toBe(true);
+    expect(plan.some((chunk) => chunk.gridSize === 17)).toBe(true);
+    expect(plan.some((chunk) => chunk.gridSize === 9)).toBe(true);
+    expect(plan.every((chunk) => {
+      const centerX = (chunk.bounds.minX + chunk.bounds.maxX) / 2;
+      return centerX >= -120;
+    })).toBe(true);
+    expect(Object.isFrozen(plan)).toBe(true);
+  });
+
+  it("rejects invalid scene scales for streamed terrain coverage", () => {
+    expect(() => getRideTerrainChunkPlan({ x: 0, z: 0 }, { x: 1, z: 0 }, 0)).toThrow(/positive world scales/);
   });
 });

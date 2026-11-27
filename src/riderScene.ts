@@ -5,6 +5,30 @@ export type RideCameraPose = Readonly<{
   target: Readonly<{ x: number; y: number; z: number }>;
 }>;
 
+export type RideTerrainChunk = Readonly<{
+  key: string;
+  bounds: Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
+  distanceMeters: number;
+  gridSize: number;
+}>;
+
+export const rideTerrainChunkSizeMeters = 160;
+export const rideTerrainMaximumDistanceMeters = 560;
+
+export type RideViewportSize = Readonly<{ width: number; height: number }>;
+
+export const getRideViewportSize = (
+  activeView: "route" | "map" | "ride",
+  routeViewport: RideViewportSize,
+  rideViewport: RideViewportSize,
+): RideViewportSize | null => {
+  const viewport = activeView === "ride" ? rideViewport : routeViewport;
+  if (![viewport.width, viewport.height].every(Number.isFinite) || viewport.width <= 0 || viewport.height <= 0) {
+    return null;
+  }
+  return Object.freeze({ width: viewport.width, height: viewport.height });
+};
+
 type MutableMeshPart = { positions: number[]; normals: number[]; indices: number[]; colors: number[] };
 
 const interpolateRoutePoint = (
@@ -73,6 +97,62 @@ export const getRideCameraPose = (
       z: targetPosition.z,
     }),
   });
+};
+
+export const getRideTerrainChunkPlan = (
+  position: Readonly<{ x: number; z: number }>,
+  direction: Readonly<{ x: number; z: number }>,
+  sceneUnitsPerMeter: number,
+  chunkSizeMeters = rideTerrainChunkSizeMeters,
+  maximumDistanceMeters = rideTerrainMaximumDistanceMeters,
+): readonly RideTerrainChunk[] => {
+  if (
+    ![position.x, position.z, direction.x, direction.z, sceneUnitsPerMeter, chunkSizeMeters, maximumDistanceMeters].every(Number.isFinite) ||
+    sceneUnitsPerMeter <= 0 || chunkSizeMeters <= 0 || maximumDistanceMeters <= 0
+  ) {
+    throw new Error("Ride terrain chunk planning requires finite positions and positive world scales.");
+  }
+
+  const directionLength = Math.hypot(direction.x, direction.z);
+  const forwardX = directionLength > 1e-8 ? direction.x / directionLength : 0;
+  const forwardZ = directionLength > 1e-8 ? direction.z / directionLength : 1;
+  const chunkSize = chunkSizeMeters * sceneUnitsPerMeter;
+  const centerX = Math.floor(position.x / chunkSize);
+  const centerZ = Math.floor(position.z / chunkSize);
+  const searchRadius = Math.ceil(maximumDistanceMeters / chunkSizeMeters) + 1;
+  const chunks: RideTerrainChunk[] = [];
+
+  for (let zIndex = centerZ - searchRadius; zIndex <= centerZ + searchRadius; zIndex += 1) {
+    for (let xIndex = centerX - searchRadius; xIndex <= centerX + searchRadius; xIndex += 1) {
+      const minX = xIndex * chunkSize;
+      const maxX = minX + chunkSize;
+      const minZ = zIndex * chunkSize;
+      const maxZ = minZ + chunkSize;
+      const deltaX = (minX + maxX) / 2 - position.x;
+      const deltaZ = (minZ + maxZ) / 2 - position.z;
+      const distanceMeters = Math.hypot(deltaX, deltaZ) / sceneUnitsPerMeter;
+      const forwardMeters = (deltaX * forwardX + deltaZ * forwardZ) / sceneUnitsPerMeter;
+      const lateralMeters = Math.abs(deltaX * forwardZ - deltaZ * forwardX) / sceneUnitsPerMeter;
+      const halfWidthMeters = Math.max(100, Math.max(0, forwardMeters) * 0.72);
+
+      if (
+        distanceMeters > maximumDistanceMeters ||
+        forwardMeters < -120 ||
+        (forwardMeters > 120 && lateralMeters > halfWidthMeters)
+      ) {
+        continue;
+      }
+
+      chunks.push(Object.freeze({
+        key: `${xIndex}:${zIndex}`,
+        bounds: Object.freeze({ minX, maxX, minZ, maxZ }),
+        distanceMeters,
+        gridSize: distanceMeters < 150 ? 33 : distanceMeters < 340 ? 17 : 9,
+      }));
+    }
+  }
+
+  return Object.freeze(chunks.sort((left, right) => left.distanceMeters - right.distanceMeters).slice(0, 48));
 };
 
 const createMutableMeshPart = (): MutableMeshPart => ({ positions: [], normals: [], indices: [], colors: [] });

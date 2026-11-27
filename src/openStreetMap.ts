@@ -16,9 +16,16 @@ export type OpenStreetMapBuilding = Readonly<{
   wallColor: MapColor;
   roofColor: MapColor;
 }>;
+export type OpenStreetMapRoad = Readonly<{
+  points: readonly MapPoint[];
+  highway: string;
+  surface: string | null;
+  bounds: Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
+}>;
 export type OpenStreetMapFeatures = Readonly<{
   areas: readonly OpenStreetMapArea[];
   buildings: readonly OpenStreetMapBuilding[];
+  roads: readonly OpenStreetMapRoad[];
 }>;
 export type GeographicBounds = Readonly<{ south: number; west: number; north: number; east: number }>;
 
@@ -67,6 +74,7 @@ const knownColors: Readonly<Record<string, string>> = Object.freeze({
 export const emptyOpenStreetMapFeatures: OpenStreetMapFeatures = Object.freeze({
   areas: Object.freeze([]),
   buildings: Object.freeze([]),
+  roads: Object.freeze([]),
 });
 
 const normalizeLongitude = (longitude: number): number => ((longitude + 180) % 360 + 360) % 360 - 180;
@@ -101,7 +109,7 @@ const formatBounds = ({ south, west, north, east }: GeographicBounds): string =>
 
 export const createOpenStreetMapQuery = (bounds: GeographicBounds): string => {
   const box = formatBounds(bounds);
-  return `[out:json][timeout:20][maxsize:100000000];(way["landuse"~"^(residential|farmland|farmyard|orchard|vineyard|forest|grass|meadow|industrial|commercial|retail|construction|quarry|cemetery|recreation_ground|allotments|greenhouse_horticulture|reservoir)$"](${box});relation["landuse"~"^(residential|farmland|farmyard|orchard|vineyard|forest|grass|meadow|industrial|commercial|retail|construction|quarry|cemetery|recreation_ground|allotments|greenhouse_horticulture|reservoir)$"](${box});way["natural"~"^(water|wood|grassland|scrub|heath|wetland|bare_rock|sand)$"](${box});relation["natural"~"^(water|wood|grassland|scrub|heath|wetland|bare_rock|sand)$"](${box});way["leisure"~"^(park|garden|golf_course|recreation_ground)$"](${box});relation["leisure"~"^(park|garden|golf_course|recreation_ground)$"](${box});way["waterway"="riverbank"](${box});relation["waterway"="riverbank"](${box});way["building"]["building"!="no"](${box});relation["building"]["building"!="no"](${box});way["building:part"](${box});relation["building:part"](${box}););out geom;`;
+  return `[out:json][timeout:20][maxsize:100000000];(way["landuse"~"^(residential|farmland|farmyard|orchard|vineyard|forest|grass|meadow|industrial|commercial|retail|construction|quarry|cemetery|recreation_ground|allotments|greenhouse_horticulture|reservoir)$"](${box});relation["landuse"~"^(residential|farmland|farmyard|orchard|vineyard|forest|grass|meadow|industrial|commercial|retail|construction|quarry|cemetery|recreation_ground|allotments|greenhouse_horticulture|reservoir)$"](${box});way["natural"~"^(water|wood|grassland|scrub|heath|wetland|bare_rock|sand)$"](${box});relation["natural"~"^(water|wood|grassland|scrub|heath|wetland|bare_rock|sand)$"](${box});way["leisure"~"^(park|garden|golf_course|recreation_ground)$"](${box});relation["leisure"~"^(park|garden|golf_course|recreation_ground)$"](${box});way["waterway"="riverbank"](${box});relation["waterway"="riverbank"](${box});way["building"]["building"!="no"](${box});relation["building"]["building"!="no"](${box});way["building:part"](${box});relation["building:part"](${box});way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|road|cycleway|path|footway|pedestrian|bridleway)$"](${box}););out geom;`;
 };
 
 const isSamePoint = (left: GeographicPoint, right: GeographicPoint): boolean =>
@@ -240,9 +248,29 @@ const createArea = (category: LandUseCategory, treesAllowed: boolean, points: re
   return Object.freeze({ category, treesAllowed, points, bounds: Object.freeze(bounds) });
 };
 
+const createRoad = (
+  points: readonly MapPoint[],
+  highway: string,
+  surface: string | null,
+): OpenStreetMapRoad => {
+  const bounds = points.reduce((result, point) => ({
+    minX: Math.min(result.minX, point.x),
+    maxX: Math.max(result.maxX, point.x),
+    minZ: Math.min(result.minZ, point.z),
+    maxZ: Math.max(result.maxZ, point.z),
+  }), {
+    minX: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  });
+  return Object.freeze({ points, highway, surface, bounds: Object.freeze(bounds) });
+};
+
 const parseElements = (elements: readonly RawElement[], geometry: TrackMeshData): OpenStreetMapFeatures => {
   const areas: OpenStreetMapArea[] = [];
   const buildings: OpenStreetMapBuilding[] = [];
+  const roads: OpenStreetMapRoad[] = [];
   const seenElements = new Set<string>();
 
   elements.forEach((element) => {
@@ -257,6 +285,13 @@ const parseElements = (elements: readonly RawElement[], geometry: TrackMeshData)
     const tags = element.tags ?? {};
     const category = getLandUseCategory(tags);
     const isBuilding = (tags.building !== undefined && tags.building !== "no") || tags["building:part"] !== undefined;
+    if (element.type === "way" && tags.highway !== undefined && (element.geometry?.length ?? 0) >= 2) {
+      roads.push(createRoad(
+        Object.freeze(element.geometry?.map((point) => toScenePoint(point, geometry)) ?? []),
+        tags.highway,
+        tags.surface ?? tags["surface:middle"] ?? null,
+      ));
+    }
     const rings = getElementRings(element);
     if (category !== null && !isBuilding) {
       rings.forEach((ring) => {
@@ -275,7 +310,7 @@ const parseElements = (elements: readonly RawElement[], geometry: TrackMeshData)
     }
   });
 
-  return Object.freeze({ areas: Object.freeze(areas), buildings: Object.freeze(buildings) });
+  return Object.freeze({ areas: Object.freeze(areas), buildings: Object.freeze(buildings), roads: Object.freeze(roads) });
 };
 
 export const parseOpenStreetMapFeatures = (value: unknown, geometry: TrackMeshData): OpenStreetMapFeatures => {

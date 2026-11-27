@@ -7,7 +7,7 @@ import {
   retainBestTerrainElevation,
   type TerrainDemData,
 } from "../src/terrainDem";
-import { createTerrainHeightSampler, createTerrainMeshData } from "../src/terrainGeometry";
+import { createTerrainChunkMeshData, createTerrainHeightSampler, createTerrainMeshData } from "../src/terrainGeometry";
 import { createTerrainScenery } from "../src/terrainScenery";
 import type { TrackPoint } from "../src/gpx";
 
@@ -105,6 +105,52 @@ describe("terrain geometry", () => {
     expect(sampleHeight(end.x, end.z)).toBeCloseTo(end.y - roadClearance, 8);
     expect(sampleHeight((start.x + middle.x) / 2, (start.z + middle.z) / 2))
       .toBeCloseTo((start.y + middle.y) / 2 - roadClearance, 8);
+  });
+
+  it("builds bounded high-resolution terrain chunks that retain GPX road clearance", () => {
+    const geometry = createTrackMeshData(points);
+    const routePoint = geometry.routePoints[1];
+    const margin = 30 * geometry.projection.sceneUnitsPerMeter;
+    const chunk = createTerrainChunkMeshData(
+      geometry,
+      () => 800,
+      {
+        minX: routePoint.x - margin,
+        maxX: routePoint.x + margin,
+        minZ: routePoint.z - margin,
+        maxZ: routePoint.z + margin,
+      },
+      33,
+    );
+
+    expect(chunk.columns).toBe(33);
+    expect(chunk.rows).toBe(33);
+    expect(chunk.bounds.minX).toBeCloseTo(routePoint.x - margin);
+    expect(chunk.bounds.maxZ).toBeCloseTo(routePoint.z + margin);
+    expect(chunk.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(
+      routePoint.y - 2.1 * geometry.projection.sceneUnitsPerMeter,
+      8,
+    );
+    expect(chunk.positions.length).toBe(chunk.normals.length);
+    expect(chunk.indices.length).toBe(32 * 32 * 6);
+  });
+
+  it("keeps GPX road clearance identical across chunk LOD levels", () => {
+    const geometry = createTrackMeshData(points);
+    const routePoint = geometry.routePoints[1];
+    const margin = 30 * geometry.projection.sceneUnitsPerMeter;
+    const bounds = {
+      minX: routePoint.x - margin,
+      maxX: routePoint.x + margin,
+      minZ: routePoint.z - margin,
+      maxZ: routePoint.z + margin,
+    };
+    const safetyDiagonalMeters = (160 * Math.SQRT2) / 8;
+    const coarse = createTerrainChunkMeshData(geometry, () => 800, bounds, 9, undefined, safetyDiagonalMeters);
+    const fine = createTerrainChunkMeshData(geometry, () => 800, bounds, 33, undefined, safetyDiagonalMeters);
+
+    expect(coarse.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(routePoint.y - 2.1 * geometry.projection.sceneUnitsPerMeter, 8);
+    expect(fine.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(coarse.sampleHeightAt(routePoint.x, routePoint.z), 8);
   });
 
   it("keeps coarse terrain below the road underside across the road width", () => {
