@@ -128,7 +128,7 @@ button, input { font: inherit; }
 .terrain-control input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .terrain-control[hidden] { display: none; }
 .ride-controls { position: absolute; z-index: 4; top: 14px; left: 50%; width: min(660px, calc(100% - 300px)); min-height: 48px; padding: 8px 11px; display: flex; align-items: center; gap: 12px; border: 1px solid rgba(226, 239, 233, 0.22); border-radius: 9px; background: rgba(15, 23, 24, 0.84); box-shadow: 0 7px 26px rgba(0, 0, 0, 0.22); color: #eef4f0; transform: translateX(-50%); backdrop-filter: blur(12px); }
-.ride-controls[hidden], .ride-cockpit[hidden] { display: none; }
+.ride-controls[hidden] { display: none; }
 #ride-play { flex: 0 0 auto; min-height: 31px; padding: 0 12px; border: 1px solid rgba(118, 221, 189, 0.45); border-radius: 6px; background: #76ddbd; color: #12211d; font-size: 11px; font-weight: 700; cursor: pointer; }
 #ride-play:disabled, #ride-speed:disabled, #ride-progress:disabled { opacity: 0.5; cursor: not-allowed; }
 .ride-seek { min-width: 90px; display: flex; flex: 1; align-items: center; }
@@ -136,7 +136,6 @@ button, input { font: inherit; }
 .ride-speed-label { display: flex; align-items: center; gap: 6px; color: #bdcbc4; font-size: 10px; white-space: nowrap; }
 #ride-speed { padding: 5px 6px; border: 1px solid rgba(226, 239, 233, 0.18); border-radius: 5px; background: #202b2a; color: #edf4ef; font-size: 10px; }
 .ride-readout { min-width: 68px; color: #d3e2da; font-family: "DM Mono", monospace; font-size: 10px; text-align: right; white-space: nowrap; }
-.ride-cockpit { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; width: 100%; height: 29%; filter: drop-shadow(0 -8px 16px rgba(0, 0, 0, 0.22)); pointer-events: none; }
 .is-riding .viewer-footer { display: none; }
 .views-composite { position: relative; min-height: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
 .primary-views { position: relative; min-width: 0; min-height: 0; display: grid; flex: 2; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
@@ -227,7 +226,6 @@ button, input { font: inherit; }
   .ride-speed-label { gap: 3px; font-size: 9px; }
   #ride-speed { padding: 4px; font-size: 9px; }
   .ride-readout { min-width: 55px; font-size: 9px; }
-  .ride-cockpit { height: 23%; }
   .viewer-footer { right: 11px; left: 11px; font-size: 6px; }
 }
 

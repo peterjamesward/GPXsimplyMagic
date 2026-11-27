@@ -9,10 +9,19 @@ import {
   type OpenStreetMapBuilding,
   type OpenStreetMapFeatures,
 } from "./openStreetMap";
+import {
+  createStylizedGrassPlacements,
+  getRouteGrassPlacementTarget,
+  getRouteTreePlacementTarget,
+  type StylizedGrassPlacement,
+  type StylizedTreePlacement,
+} from "./vegetationPlacement";
 
 export type TerrainSceneryData = Readonly<{
   foliage: TrackMeshPart;
   trunks: TrackMeshPart;
+  grassPlacements: readonly StylizedGrassPlacement[];
+  treePlacements: readonly StylizedTreePlacement[];
   buildingWalls: TrackMeshPart;
   buildingRoofs: TrackMeshPart;
 }>;
@@ -321,9 +330,10 @@ export const createTerrainScenery = (
   const routeStartDistance = firstRoutePoint.distanceMeters;
   const routeEndDistance = lastRoutePoint.distanceMeters;
   const routeLengthMeters = Math.max(0, routeEndDistance - routeStartDistance);
-  const targetTreeCount = Math.max(24, Math.min(800, Math.round(routeLengthMeters / 30)));
+  const targetTreeCount = getRouteTreePlacementTarget(routeLengthMeters);
   const targetBuildingCount = Math.max(1, Math.min(24, Math.round(areaMeters / 22_000)));
   const planted: Placement[] = [];
+  const treePlacements: StylizedTreePlacement[] = [];
   const buildings: Placement[] = [];
   const foliage = createMutableMeshPart();
   const trunks = createMutableMeshPart();
@@ -377,15 +387,20 @@ export const createTerrainScenery = (
     }
 
     planted.push(placement);
+    const heightMeters = 8 + random() * 10;
+    const height = heightMeters * scale;
+    const rotation = random() * Math.PI * 2;
+    const y = terrain.sampleHeightAt(placement.x, placement.z);
+    treePlacements.push(Object.freeze({ x: placement.x, y, z: placement.z, height, rotation }));
     createTree(
       trunks,
       foliage,
       placement.x,
-      terrain.sampleHeightAt(placement.x, placement.z),
+      y,
       placement.z,
       scale,
-      8 + random() * 10,
-      random() * Math.PI * 2,
+      heightMeters,
+      rotation,
     );
   }
 
@@ -419,9 +434,21 @@ export const createTerrainScenery = (
     );
   }
 
+  const grassPlacements = createStylizedGrassPlacements(
+    terrain,
+    geometry,
+    landUseIndex,
+    seed ^ 0x71a55,
+    getRouteGrassPlacementTarget(routeLengthMeters),
+    terrain.bounds,
+    "route",
+  );
+
   return Object.freeze({
     foliage: freezePart(foliage),
     trunks: freezePart(trunks),
+    grassPlacements,
+    treePlacements: Object.freeze(treePlacements),
     buildingWalls: freezePart(buildingWalls),
     buildingRoofs: freezePart(buildingRoofs),
   });

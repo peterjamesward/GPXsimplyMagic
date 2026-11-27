@@ -16,6 +16,29 @@ export const rideTerrainChunkSizeMeters = 160;
 export const rideTerrainMaximumDistanceMeters = 560;
 
 export type RideViewportSize = Readonly<{ width: number; height: number }>;
+export type RideWindClock = Readonly<{ timeSeconds: number; frameTimeSeconds: number }>;
+
+export const createRideWindClock = (frameTimeSeconds: number): RideWindClock => {
+  if (!Number.isFinite(frameTimeSeconds)) {
+    throw new Error("Ride wind clock time must be finite.");
+  }
+  return Object.freeze({ timeSeconds: 0, frameTimeSeconds });
+};
+
+export const advanceRideWindClock = (
+  clock: RideWindClock,
+  frameTimeSeconds: number,
+  paused: boolean,
+): RideWindClock => {
+  if (![clock.timeSeconds, clock.frameTimeSeconds, frameTimeSeconds].every(Number.isFinite)) {
+    throw new Error("Ride wind clock time must be finite.");
+  }
+  const elapsedSeconds = paused ? 0 : Math.max(0, frameTimeSeconds - clock.frameTimeSeconds);
+  return Object.freeze({
+    timeSeconds: clock.timeSeconds + elapsedSeconds,
+    frameTimeSeconds,
+  });
+};
 
 export const getRideViewportSize = (
   activeView: "route" | "map" | "ride",

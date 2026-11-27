@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createTrackMeshData } from "../src/trackGeometry";
-import { createRideRoadMarkings, getRideCameraPose, getRideTerrainChunkPlan, getRideViewportSize } from "../src/riderScene";
+import {
+  advanceRideWindClock,
+  createRideRoadMarkings,
+  createRideWindClock,
+  getRideCameraPose,
+  getRideTerrainChunkPlan,
+  getRideViewportSize,
+} from "../src/riderScene";
 
 const geometry = createTrackMeshData([
   { latitude: 0, longitude: 0, elevationMeters: 100 },
@@ -9,6 +16,20 @@ const geometry = createTrackMeshData([
 ]);
 
 describe("first-person ride scene", () => {
+  it("freezes stylized wind while paused and resumes without a time jump", () => {
+    let clock = createRideWindClock(0);
+    clock = advanceRideWindClock(clock, 1, false);
+    expect(clock.timeSeconds).toBe(1);
+
+    clock = advanceRideWindClock(clock, 5, true);
+    expect(clock.timeSeconds).toBe(1);
+
+    clock = advanceRideWindClock(clock, 5, false);
+    expect(clock.timeSeconds).toBe(1);
+    clock = advanceRideWindClock(clock, 5.5, false);
+    expect(clock.timeSeconds).toBe(1.5);
+  });
+
   it("uses the visible Ride canvas dimensions instead of the hidden route canvas", () => {
     expect(getRideViewportSize(
       "ride",

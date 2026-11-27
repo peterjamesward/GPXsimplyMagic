@@ -10,7 +10,9 @@ import {
 } from "./openStreetMap";
 import { createMappedRoadMeshData, type MappedRoadSurface } from "./mappedRoadGeometry";
 import {
+  advanceRideWindClock,
   createRideRoadMarkings,
+  createRideWindClock,
   getRideTerrainChunkPlan,
   rideTerrainChunkSizeMeters,
   type RideCameraPose,
@@ -22,6 +24,13 @@ import {
 } from "./terrainGeometry";
 import type { TerrainDemData } from "./terrainDem";
 import type { TrackMeshData, TrackMeshPart } from "./trackGeometry";
+import {
+  createStylizedGrassPlacements,
+  getRideGrassPlacementTarget,
+  getRideTreePlacementTarget,
+  type StylizedTreePlacement,
+} from "./vegetationPlacement";
+import { createStylizedGrassMesh, createStylizedTreeGroup, loadStylizedVegetationAssets, updateStylizedVegetationWind, type StylizedVegetationAssets } from "./stylizedVegetation";
 
 type TerrainChunkRecord = Readonly<{ group: THREE.Group; revision: number }>;
 type PendingChunk = Readonly<{ descriptor: RideTerrainChunk; revision: number }>;
@@ -30,6 +39,7 @@ export type RideSceneRenderer = Readonly<{
   setRoute: (geometry: TrackMeshData) => void;
   setEnvironment: (elevation: TerrainDemData | null, features: OpenStreetMapFeatures) => void;
   setCameraPose: (pose: RideCameraPose) => void;
+  setPlaybackPaused: (paused: boolean) => void;
   setActive: (active: boolean) => void;
   dispose: () => void;
 }>;
@@ -320,11 +330,12 @@ const createTreeGroup = (
   chunk: RideTerrainChunk,
   seed: number,
   findRouteConstraints: ReturnType<typeof createRouteConstraintIndex>,
+  stylizedAssets: StylizedVegetationAssets | null,
 ): THREE.Group => {
   const group = new THREE.Group();
   const random = createRandom(seed);
   const scale = geometry.projection.sceneUnitsPerMeter;
-  const desired = chunk.gridSize >= 33 ? 62 : chunk.gridSize >= 17 ? 34 : 12;
+  const desired = getRideTreePlacementTarget(chunk.gridSize);
   const placements: Readonly<{ x: number; z: number; y: number; height: number; pine: boolean; rotation: number }>[] = [];
   const accepted: { x: number; z: number }[] = [];
   for (let attempt = 0; placements.length < desired && attempt < desired * 45; attempt += 1) {
@@ -351,6 +362,17 @@ const createTreeGroup = (
 
   if (placements.length === 0) {
     return group;
+  }
+
+  if (stylizedAssets !== null) {
+    const treePlacements: StylizedTreePlacement[] = placements.map((tree) => Object.freeze({
+      x: tree.x,
+      y: tree.y,
+      z: tree.z,
+      height: tree.height,
+      rotation: tree.rotation,
+    }));
+    return createStylizedTreeGroup(stylizedAssets, treePlacements);
   }
 
   const trunkMaterial = new THREE.MeshStandardMaterial({ color: "#594231", roughness: 0.92 });
@@ -539,6 +561,7 @@ const makeChunkGroup = (
   materialForMappedRoad: (surface: MappedRoadSurface) => THREE.MeshStandardMaterial,
   index: LandUseSpatialIndex,
   findRouteConstraints: ReturnType<typeof createRouteConstraintIndex>,
+  stylizedAssets: StylizedVegetationAssets | null,
 ): THREE.Group => {
   const sceneScale = geometry.projection.sceneUnitsPerMeter;
   const terrain = createTerrainChunkMeshData(
@@ -563,6 +586,19 @@ const makeChunkGroup = (
     roadMesh.receiveShadow = true;
     group.add(roadMesh);
   });
+  if (stylizedAssets !== null) {
+    const grassPlacements = createStylizedGrassPlacements(
+      terrain,
+      geometry,
+      index,
+      seedForChunk(descriptor.key) ^ 0x71a55,
+      getRideGrassPlacementTarget(descriptor.gridSize),
+      descriptor.bounds,
+      "area",
+    );
+    const grass = createStylizedGrassMesh(stylizedAssets, grassPlacements);
+    if (grass !== null) group.add(grass);
+  }
   group.add(createTreeGroup(
     descriptor.bounds,
     terrain,
@@ -571,6 +607,7 @@ const makeChunkGroup = (
     descriptor,
     seedForChunk(descriptor.key),
     findRouteConstraints,
+    stylizedAssets,
   ));
   group.add(createMappedBuildings(descriptor, terrain, geometry, features.buildings));
   group.userData.terrainRevision = revision;
@@ -675,9 +712,12 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
   let pendingChunks: PendingChunk[] = [];
   let dataRevision = 0;
   let isActive = false;
+  let playbackPaused = true;
   let animationFrame: number | null = null;
   let disposed = false;
   let lastTerrainPlan = "";
+  let stylizedAssets: StylizedVegetationAssets | null = null;
+  let windClock = createRideWindClock(performance.now() / 1000);
 
   const resize = (): void => {
     const bounds = canvas.getBoundingClientRect();
@@ -734,6 +774,19 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
       .map((descriptor) => Object.freeze({ descriptor, revision: dataRevision }));
   };
 
+  void loadStylizedVegetationAssets().then((assets) => {
+    if (disposed) {
+      assets.dispose();
+      return;
+    }
+    stylizedAssets = assets;
+    dataRevision += 1;
+    lastTerrainPlan = "";
+    syncChunks();
+  }).catch((error: unknown) => {
+    console.warn("Unable to load stylized vegetation; using procedural scenery instead.", error);
+  });
+
   const buildOnePendingChunk = (): void => {
     if (activeGeometry === null || routeIndex === null) return;
     while (pendingChunks.length > 0) {
@@ -755,6 +808,7 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
         materialForMappedRoad,
         landUseIndex,
         routeIndex,
+        stylizedAssets,
       );
       removeChunk(pending.descriptor.key);
       scene.add(group);
@@ -767,6 +821,8 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
     animationFrame = null;
     if (!isActive || disposed) return;
     buildOnePendingChunk();
+    windClock = advanceRideWindClock(windClock, performance.now() / 1000, playbackPaused);
+    if (!playbackPaused) updateStylizedVegetationWind(scene, windClock.timeSeconds);
     renderer.render(scene, camera);
     animationFrame = window.requestAnimationFrame(draw);
   };
@@ -845,7 +901,12 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
       syncChunks();
     },
     setCameraPose: setPose,
+    setPlaybackPaused: (paused: boolean): void => {
+      windClock = advanceRideWindClock(windClock, performance.now() / 1000, playbackPaused);
+      playbackPaused = paused;
+    },
     setActive: (active: boolean): void => {
+      windClock = advanceRideWindClock(windClock, performance.now() / 1000, true);
       isActive = active;
       if (active) start();
       else if (animationFrame !== null) {
@@ -868,6 +929,7 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
       patternTextures.forEach((texture) => texture.dispose());
       groundMaterials.forEach((material) => material.dispose());
       mappedRoadMaterials.forEach((material) => material.dispose());
+      stylizedAssets?.dispose();
       asphaltTextures.color.dispose();
       asphaltTextures.normal.dispose();
       roadMaterial.dispose();

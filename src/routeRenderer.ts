@@ -4,6 +4,7 @@ import type { TerrainMeshData } from "./terrainGeometry";
 import type { TrackMeshData, TrackMeshPart } from "./trackGeometry";
 import { createRouteCamera, getPointerRay as createRoutePointerRay, updateRouteCamera, type RouteCamera, type TrackRay } from "./cameraControls";
 import type { GradientCurtainMeshData } from "./gradientCurtain";
+import { createStylizedGrassMesh, createStylizedTreeGroup, loadStylizedVegetationAssets, updateStylizedVegetationWind, type StylizedVegetationAssets } from "./stylizedVegetation";
 
 export type RouteRenderer = Readonly<{
   camera: RouteCamera;
@@ -106,6 +107,9 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
   let disposed = false;
   let viewportWidth = 0;
   let viewportHeight = 0;
+  let stylizedAssets: StylizedVegetationAssets | null = null;
+  let terrainVisible = true;
+  let currentLandscape: Readonly<{ terrain: TerrainMeshData; scenery: TerrainSceneryData }> | null = null;
 
   const resize = (): void => {
     const bounds = canvas.getBoundingClientRect();
@@ -125,6 +129,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
     animationFrame = null;
     if (!active || disposed) return;
     resize();
+    if (landscapeGroup !== null) updateStylizedVegetationWind(landscapeGroup, performance.now() / 1000);
     renderer.render(scene, camera.renderCamera);
     animationFrame = window.requestAnimationFrame(draw);
   };
@@ -136,6 +141,17 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
     }
   };
   start();
+
+  void loadStylizedVegetationAssets().then((assets) => {
+    if (disposed) {
+      assets.dispose();
+      return;
+    }
+    stylizedAssets = assets;
+    if (currentLandscape !== null) setLandscape(currentLandscape.terrain, currentLandscape.scenery);
+  }).catch((error: unknown) => {
+    console.warn("Unable to load stylized vegetation; using procedural scenery instead.", error);
+  });
 
   const setRoute = (geometry: TrackMeshData, curtain: GradientCurtainMeshData, roadMarkings: TrackMeshPart): void => {
     if (routeGroup !== null) scene.remove(routeGroup);
@@ -172,6 +188,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
   };
 
   const setLandscape = (terrain: TerrainMeshData, scenery: TerrainSceneryData): void => {
+    currentLandscape = Object.freeze({ terrain, scenery });
     if (landscapeGroup !== null) scene.remove(landscapeGroup);
     disposeGroup(landscapeGroup);
     landscapeGroup = new THREE.Group();
@@ -181,11 +198,17 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
       emissive: "#10170b",
       roughness: 1,
     }));
-    if (scenery.foliage.positions.length > 0) {
-      landscapeGroup.add(createMesh(scenery.foliage, "route-terrain-foliage", "#348046", { emissive: "#07180b", roughness: 1 }));
-    }
-    if (scenery.trunks.positions.length > 0) {
-      landscapeGroup.add(createMesh(scenery.trunks, "route-terrain-trunks", "#80543a", { emissive: "#170d08", roughness: 1 }));
+    if (stylizedAssets !== null) {
+      const grass = createStylizedGrassMesh(stylizedAssets, scenery.grassPlacements);
+      if (grass !== null) landscapeGroup.add(grass);
+      landscapeGroup.add(createStylizedTreeGroup(stylizedAssets, scenery.treePlacements));
+    } else {
+      if (scenery.foliage.positions.length > 0) {
+        landscapeGroup.add(createMesh(scenery.foliage, "route-terrain-foliage", "#348046", { emissive: "#07180b", roughness: 1 }));
+      }
+      if (scenery.trunks.positions.length > 0) {
+        landscapeGroup.add(createMesh(scenery.trunks, "route-terrain-trunks", "#80543a", { emissive: "#170d08", roughness: 1 }));
+      }
     }
     if (scenery.buildingWalls.positions.length > 0) {
       landscapeGroup.add(createMesh(scenery.buildingWalls, "route-terrain-buildings", "#ad9878", { emissive: "#21190f", roughness: 0.88 }));
@@ -194,6 +217,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
       landscapeGroup.add(createMesh(scenery.buildingRoofs, "route-terrain-roofs", "#8e4436", { emissive: "#200907", roughness: 0.88 }));
     }
     scene.add(landscapeGroup);
+    landscapeGroup.visible = terrainVisible;
   };
 
   const getPointerRay = (clientX: number, clientY: number): TrackRay | null =>
@@ -215,6 +239,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
     setRoute,
     setLandscape,
     setTerrainVisible: (visible: boolean): void => {
+      terrainVisible = visible;
       if (landscapeGroup !== null) landscapeGroup.visible = visible;
       if (curtainMesh !== null) curtainMesh.visible = !visible;
     },
@@ -248,6 +273,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
         curtainMesh.geometry.dispose();
         disposeMaterial(curtainMesh.material);
       }
+      stylizedAssets?.dispose();
       renderer.dispose();
     },
   });

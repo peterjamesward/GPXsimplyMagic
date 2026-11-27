@@ -251,6 +251,10 @@ describe("terrain geometry", () => {
     expect(first.foliage.positions.length).toBeGreaterThan(0);
     expect(first.buildingWalls.positions.length).toBeGreaterThan(0);
     expect(first.foliage.positions).toEqual(second.foliage.positions);
+    expect(first.grassPlacements).toEqual(second.grassPlacements);
+    expect(first.treePlacements).toEqual(second.treePlacements);
+    expect(first.grassPlacements.length).toBeGreaterThan(0);
+    expect(first.treePlacements.every((tree) => tree.height > 0 && Number.isFinite(tree.rotation))).toBe(true);
     expect(first.buildingRoofs.positions).toEqual(second.buildingRoofs.positions);
     expect(first.foliage.normals.every(Number.isFinite)).toBe(true);
     expect(first.buildingWalls.indices.length).toBeGreaterThan(0);
@@ -270,7 +274,7 @@ describe("terrain geometry", () => {
       }
     }
 
-    expect(scenery.foliage.positions.length / 135).toBeGreaterThan(400);
+    expect(scenery.foliage.positions.length / 135).toBe(400);
     expect(foliageVerticesBesideRoute / (scenery.foliage.positions.length / 3)).toBeGreaterThan(0.75);
   });
 });

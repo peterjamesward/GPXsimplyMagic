@@ -4,6 +4,8 @@ A local-first TypeScript app for opening and exploring cycling GPX tracks. Track
 
 The **Ride** tab uses a dedicated WebGL scene with a first-person camera that follows the route at a selected cycling speed. Start or pause playback, scrub to a position, and follow the rider marker in the elevation profile. It streams nearby terrain in level-of-detail chunks, culls distant scenery, uses PBR road and land-cover materials, procedural sky and terrain shaders, soft sun shadows, fog, and antialiasing. Mapped OSM roads, buildings, water and land use are retained where available; instanced trees and procedural texture detail make gaps look richer but are illustrative, not geographically exact. This remains a visual prototype rather than a complete photorealistic game environment.
 
+Both 3D views use grass-blade and tree meshes adapted from [dedekpo/stylized-scene](https://github.com/dedekpo/stylized-scene), distributed under its MIT license in `public/stylized-scene/LICENSE`. The original scene's TSL/WebGPU shaders are not used; the app renders the meshes with WebGL-compatible Three.js materials and a lightweight wind vertex shader. Vegetation is deterministic, avoids mapped water, and keeps grass clear of the GPX road.
+
 ## Run locally
 
 ```sh

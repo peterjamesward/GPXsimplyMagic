@@ -59,7 +59,6 @@ const ridePlayButton = document.querySelector<HTMLButtonElement>("#ride-play");
 const rideProgress = document.querySelector<HTMLInputElement>("#ride-progress");
 const rideSpeed = document.querySelector<HTMLSelectElement>("#ride-speed");
 const rideReadout = document.querySelector<HTMLOutputElement>("#ride-readout");
-const rideCockpit = document.querySelector<SVGElement>("#ride-cockpit");
 const routeViewPanel = document.querySelector<HTMLElement>("#route-view-panel");
 const terrainViewPanel = document.querySelector<HTMLElement>("#terrain-view-panel");
 const mapContainer = document.querySelector<HTMLElement>("#map-canvas");
@@ -85,7 +84,6 @@ if (
   rideProgress === null ||
   rideSpeed === null ||
   rideReadout === null ||
-  rideCockpit === null ||
   routeViewPanel === null ||
   terrainViewPanel === null ||
   mapContainer === null ||
@@ -122,7 +120,6 @@ const showView = (view: ViewerMode): void => {
   routeViewPanel.classList.toggle("is-riding", isRideActive);
   terrainControl.hidden = view !== "route";
   rideControls.hidden = !isRideActive;
-  rideCockpit.toggleAttribute("hidden", !isRideActive);
   activateSceneView(view);
 };
 
@@ -319,6 +316,7 @@ const initializeViewer = async (): Promise<void> => {
             rideRenderer.setEnvironment(bestTerrainDem, activeTerrainFeatures);
             updateRideCamera();
           }
+          rideRenderer.setPlaybackPaused(!rideIsPlaying);
           rideRenderer.setActive(activeView === "ride");
         }).catch((error: unknown) => {
           engineError.hidden = false;
@@ -401,23 +399,27 @@ const initializeViewer = async (): Promise<void> => {
       updateRideCamera();
       updateRideReadout();
     };
+    const setRidePlaying = (isPlaying: boolean): void => {
+      rideIsPlaying = isPlaying;
+      rideRenderer?.setPlaybackPaused(!isPlaying);
+    };
     ridePlayButton.addEventListener("click", () => {
       const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
       if (totalDistance === undefined) {
         return;
       }
       if (rideIsPlaying) {
-        rideIsPlaying = false;
+        setRidePlaying(false);
       } else {
         if (rideDistanceMeters >= totalDistance) {
           setRideDistance(0);
         }
-        rideIsPlaying = true;
+        setRidePlaying(true);
       }
       ridePlayButton.textContent = rideIsPlaying ? "Pause ride" : rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
     });
     rideProgress.addEventListener("input", () => {
-      rideIsPlaying = false;
+      setRidePlaying(false);
       const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
       setRideDistance((Number(rideProgress.value) / 1000) * totalDistance);
       ridePlayButton.textContent = rideDistanceMeters >= totalDistance ? "Ride again" : "Resume ride";
@@ -458,7 +460,7 @@ const initializeViewer = async (): Promise<void> => {
         const totalDistance = activeGeometry.routePoints.at(-1)?.distanceMeters ?? 0;
         rideDistanceMeters = Math.min(totalDistance, rideDistanceMeters + elapsedSeconds * (Number(rideSpeed.value) / 3.6));
         if (rideDistanceMeters >= totalDistance) {
-          rideIsPlaying = false;
+          setRidePlaying(false);
         }
         updateRideCamera();
         if (now - lastRideHudTime >= 100 || !rideIsPlaying) {
@@ -514,7 +516,7 @@ const initializeViewer = async (): Promise<void> => {
       activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
       profileView.setRoute(geometry.routePoints);
       rideDistanceMeters = 0;
-      rideIsPlaying = false;
+      setRidePlaying(false);
       rideProgress.disabled = false;
       ridePlayButton.disabled = false;
       rideSpeed.disabled = false;
