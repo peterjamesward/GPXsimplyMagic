@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { createTrackMeshData } from "../src/trackGeometry";
 import {
   createTrackProfileViewState,
+  focusTrackProfileView,
   getTrackProfilePlotBounds,
+  getTrackProfileMetersPerPixel,
   getTrackProfilePointAtDistance,
   getTrackProfilePointAtPosition,
   getTrackProfileScreenPoint,
@@ -17,14 +19,67 @@ const geometry = createTrackMeshData([
 ]);
 
 describe("track elevation profile", () => {
-  it("creates a padded distance and altitude range for the route", () => {
+  it("attaches route endpoints to the profile's horizontal edges", () => {
     const state = createTrackProfileViewState(geometry.routePoints);
+    const plot = getTrackProfilePlotBounds(800, 220);
+    const firstPoint = geometry.routePoints[0];
+    const lastPoint = geometry.routePoints[geometry.routePoints.length - 1];
+    const firstScreenPoint = getTrackProfileScreenPoint(firstPoint, state, plot);
+    const lastScreenPoint = getTrackProfileScreenPoint(lastPoint, state, plot);
 
-    expect(state.minDistanceMeters).toBeLessThan(geometry.routePoints[0].distanceMeters);
-    expect(state.maxDistanceMeters).toBeGreaterThan(geometry.routePoints.at(-1)!.distanceMeters);
+    expect(state.minDistanceMeters).toBe(firstPoint.distanceMeters);
+    expect(state.maxDistanceMeters).toBe(lastPoint.distanceMeters);
+    expect(firstScreenPoint.x).toBe(plot.left);
+    expect(lastScreenPoint.x).toBe(plot.left + plot.width);
     expect(state.minAltitudeMeters).toBeLessThan(100);
     expect(state.maxAltitudeMeters).toBeGreaterThan(110);
     expect(Object.isFrozen(state)).toBe(true);
+  });
+
+  it("reports the visible profile distance scale in meters per pixel", () => {
+    const state = createTrackProfileViewState(geometry.routePoints);
+    const plot = getTrackProfilePlotBounds(800, 220);
+
+    expect(getTrackProfileMetersPerPixel(state, plot.width)).toBeCloseTo(
+      (state.maxDistanceMeters - state.minDistanceMeters) / plot.width,
+    );
+    expect(getTrackProfileMetersPerPixel(state, 0)).toBeNull();
+  });
+
+  it("centers and rescales the profile around a focused route point", () => {
+    const state = createTrackProfileViewState(geometry.routePoints);
+    const point = geometry.routePoints[1];
+    const metersPerPixel = 0.5;
+    const plotWidth = 100;
+    const focused = focusTrackProfileView(state, geometry.routePoints, point.distanceMeters, metersPerPixel, plotWidth);
+
+    expect((focused.minDistanceMeters + focused.maxDistanceMeters) / 2).toBeCloseTo(point.distanceMeters);
+    expect(getTrackProfileMetersPerPixel(focused, plotWidth)).toBeCloseTo(metersPerPixel);
+    expect(focused.minAltitudeMeters).toBeLessThan(110);
+    expect(focused.maxAltitudeMeters).toBeGreaterThan(110);
+  });
+
+  it("keeps reciprocal profile focus within the full-route limits", () => {
+    const state = createTrackProfileViewState(geometry.routePoints);
+    const focused = focusTrackProfileView(state, geometry.routePoints, geometry.routePoints[0].distanceMeters, 1, 100);
+
+    expect(focused.minDistanceMeters).toBe(state.minDistanceLimitMeters);
+    expect(focused.maxDistanceMeters).toBeLessThanOrEqual(state.maxDistanceLimitMeters);
+    expect(focusTrackProfileView(state, geometry.routePoints, 10, 0, 100)).toBe(state);
+  });
+
+  it("keeps tight endpoint focus attached to the full-route profile edges", () => {
+    const state = createTrackProfileViewState(geometry.routePoints);
+    const firstPoint = geometry.routePoints[0];
+    const lastPoint = geometry.routePoints[geometry.routePoints.length - 1];
+    const focusedStart = focusTrackProfileView(state, geometry.routePoints, firstPoint.distanceMeters, 0.001, 100);
+    const focusedEnd = focusTrackProfileView(state, geometry.routePoints, lastPoint.distanceMeters, 0.001, 100);
+
+    expect(focusedStart.minDistanceMeters).toBe(firstPoint.distanceMeters);
+    expect(focusedEnd.maxDistanceMeters).toBe(lastPoint.distanceMeters);
+    const plot = getTrackProfilePlotBounds(800, 220);
+    expect(getTrackProfileScreenPoint(firstPoint, focusedStart, plot).x).toBe(plot.left);
+    expect(getTrackProfileScreenPoint(lastPoint, focusedEnd, plot).x).toBe(plot.left + plot.width);
   });
 
   it("selects a route point when the pointer is near its profile position", () => {

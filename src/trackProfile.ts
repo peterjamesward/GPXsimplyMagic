@@ -13,6 +13,59 @@ export type TrackProfileViewState = Readonly<{
 export type TrackProfilePlotBounds = Readonly<{ left: number; top: number; width: number; height: number }>;
 export type TrackProfileScreenPoint = Readonly<{ x: number; y: number }>;
 
+export const getTrackProfileMetersPerPixel = (
+  state: TrackProfileViewState,
+  plotWidth: number,
+): number | null => {
+  const distanceRange = state.maxDistanceMeters - state.minDistanceMeters;
+  if (!Number.isFinite(plotWidth) || plotWidth <= 0 || !Number.isFinite(distanceRange) || distanceRange <= 0) {
+    return null;
+  }
+  return distanceRange / plotWidth;
+};
+
+export const focusTrackProfileView = (
+  state: TrackProfileViewState,
+  points: readonly TrackRoutePoint[],
+  distanceMeters: number,
+  metersPerPixel: number,
+  plotWidth: number,
+): TrackProfileViewState => {
+  if (
+    points.length === 0 ||
+    ![distanceMeters, metersPerPixel, plotWidth].every(Number.isFinite) ||
+    metersPerPixel <= 0 ||
+    plotWidth <= 0
+  ) {
+    return state;
+  }
+
+  const distanceSpan = metersPerPixel * plotWidth;
+  if (!Number.isFinite(distanceSpan)) {
+    return state;
+  }
+  const boundedDistanceSpan = Math.max(0.1, distanceSpan);
+  const [minDistanceMeters, maxDistanceMeters] = clampRangeToBounds(
+    distanceMeters - boundedDistanceSpan / 2,
+    distanceMeters + boundedDistanceSpan / 2,
+    state.minDistanceLimitMeters,
+    state.maxDistanceLimitMeters,
+  );
+  const [fittedMinAltitudeMeters, fittedMaxAltitudeMeters] = getVisibleAltitudeRange(
+    points,
+    minDistanceMeters,
+    maxDistanceMeters,
+  ) ?? [state.minAltitudeMeters, state.maxAltitudeMeters];
+  const [minAltitudeMeters, maxAltitudeMeters] = clampRangeToBounds(
+    fittedMinAltitudeMeters,
+    fittedMaxAltitudeMeters,
+    state.minAltitudeLimitMeters,
+    state.maxAltitudeLimitMeters,
+  );
+
+  return Object.freeze({ ...state, minDistanceMeters, maxDistanceMeters, minAltitudeMeters, maxAltitudeMeters });
+};
+
 export const getTrackProfilePlotBounds = (width: number, height: number): TrackProfilePlotBounds => Object.freeze({
   left: 54,
   top: 12,
@@ -45,7 +98,10 @@ export const createTrackProfileViewState = (points: readonly TrackRoutePoint[]):
     (range, point) => ({ min: Math.min(range.min, point.altitudeMeters), max: Math.max(range.max, point.altitudeMeters) }),
     { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY },
   );
-  const [minDistanceMeters, maxDistanceMeters] = getExpandedRange(firstPoint.distanceMeters, lastPoint.distanceMeters, 0.025, 5);
+  const routeDistanceSpan = lastPoint.distanceMeters - firstPoint.distanceMeters;
+  const [minDistanceMeters, maxDistanceMeters] = routeDistanceSpan > 0.1
+    ? [firstPoint.distanceMeters, lastPoint.distanceMeters]
+    : getExpandedRange(firstPoint.distanceMeters, lastPoint.distanceMeters, 0.025, 5);
   const [minAltitudeMeters, maxAltitudeMeters] = getExpandedRange(altitudeRange.min, altitudeRange.max, 0.12, 5);
 
   return Object.freeze({

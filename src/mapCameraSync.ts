@@ -24,6 +24,7 @@ const earthCircumferenceMeters = 40_075_016.68557849;
 const mercatorTileSize = 512;
 const maximumMercatorLatitude = 85.05112878;
 const maximumMapZoom = 22;
+const minimumMapZoom = -2;
 const maximumMapPitch = 85;
 
 const isValidProjection = (projection: TrackProjection): boolean =>
@@ -46,6 +47,63 @@ const getMapLatitude = (latitude: number): number => clamp(latitude, -maximumMer
 
 const getLongitudeNear = (longitude: number, referenceLongitude: number): number =>
   longitude + 360 * Math.round((referenceLongitude - longitude) / 360);
+
+export const getRouteCameraMetersPerPixel = (
+  camera: RouteCameraState,
+  viewport: ViewportSize,
+  projection: TrackProjection,
+): number | null => {
+  if (
+    !isValidProjection(projection) ||
+    !Number.isFinite(camera.radius) ||
+    camera.radius <= 0 ||
+    !Number.isFinite(viewport.height) ||
+    viewport.height <= 0 ||
+    !Number.isFinite(camera.fov) ||
+    camera.fov <= 0 ||
+    camera.fov >= Math.PI
+  ) {
+    return null;
+  }
+
+  const metersPerPixel =
+    (2 * camera.radius * Math.tan(camera.fov / 2)) / (viewport.height * projection.sceneUnitsPerMeter);
+  return Number.isFinite(metersPerPixel) && metersPerPixel > 0 ? metersPerPixel : null;
+};
+
+export const getRouteCameraRadiusForMetersPerPixel = (
+  metersPerPixel: number,
+  latitude: number,
+  viewport: ViewportSize,
+  projection: TrackProjection,
+  fov: number,
+): number | null => {
+  if (
+    !isValidProjection(projection) ||
+    !Number.isFinite(metersPerPixel) ||
+    metersPerPixel <= 0 ||
+    !Number.isFinite(latitude) ||
+    viewport.height <= 0 ||
+    fov <= 0 ||
+    fov >= Math.PI
+  ) {
+    return null;
+  }
+
+  const latitudeScale = Math.cos((getMapLatitude(latitude) * Math.PI) / 180);
+  const metersPerPixelAtMaximumZoom =
+    (latitudeScale * earthCircumferenceMeters) / (mercatorTileSize * 2 ** maximumMapZoom);
+  const metersPerPixelAtMinimumZoom =
+    (latitudeScale * earthCircumferenceMeters) / (mercatorTileSize * 2 ** minimumMapZoom);
+  const boundedMetersPerPixel = clamp(
+    metersPerPixel,
+    metersPerPixelAtMaximumZoom,
+    metersPerPixelAtMinimumZoom,
+  );
+  const radius =
+    (boundedMetersPerPixel * projection.sceneUnitsPerMeter * viewport.height) / (2 * Math.tan(fov / 2));
+  return Number.isFinite(radius) && radius > 0 ? radius : null;
+};
 
 export const getMapCameraView = (
   camera: RouteCameraState,
@@ -82,7 +140,7 @@ export const getMapCameraView = (
 
   return Object.freeze({
     center: Object.freeze([longitude, latitude] as const),
-    zoom: clamp(zoom, -2, maximumMapZoom),
+    zoom: clamp(zoom, minimumMapZoom, maximumMapZoom),
     bearing: normalizeBearing((Math.atan2(-Math.cos(camera.alpha), -Math.sin(camera.alpha)) * 180) / Math.PI),
     pitch: clamp((camera.beta * 180) / Math.PI, 0, maximumMapPitch),
   });
@@ -108,7 +166,7 @@ export const getRouteCameraState = (
   const longitude = getLongitudeNear(mapView.center[0], projection.centerLongitude);
   const metersPerPixel =
     (Math.cos((latitude * Math.PI) / 180) * earthCircumferenceMeters) /
-    (mercatorTileSize * 2 ** clamp(mapView.zoom, -2, maximumMapZoom));
+    (mercatorTileSize * 2 ** clamp(mapView.zoom, minimumMapZoom, maximumMapZoom));
   const radius =
     (metersPerPixel * projection.sceneUnitsPerMeter * viewport.height) / (2 * Math.tan(fov / 2));
   const beta = (clamp(mapView.pitch, 0, maximumMapPitch) * Math.PI) / 180;

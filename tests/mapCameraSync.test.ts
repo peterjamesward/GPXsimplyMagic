@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { getMapCameraView, getRouteCameraState, getWrappedAngleDifference } from "../src/mapCameraSync";
+import {
+  getMapCameraView,
+  getRouteCameraMetersPerPixel,
+  getRouteCameraRadiusForMetersPerPixel,
+  getRouteCameraState,
+  getWrappedAngleDifference,
+} from "../src/mapCameraSync";
 import type { TrackProjection } from "../src/trackGeometry";
 
 const projection: TrackProjection = {
@@ -48,6 +54,57 @@ describe("camera synchronization", () => {
     expect(synchronized?.alpha).toBeCloseTo(routeCamera.alpha, 6);
     expect(synchronized?.beta).toBeCloseTo(routeCamera.beta, 6);
     expect(synchronized?.radius).toBeCloseTo(routeCamera.radius, 6);
+  });
+
+  it("converts a requested ground meters-per-pixel scale into a comparable route-camera radius", () => {
+    const metersPerPixel = 20;
+    const latitude = 45;
+    const viewport = { width: 800, height: 400 };
+    const fov = Math.PI / 4;
+    const radius = getRouteCameraRadiusForMetersPerPixel(metersPerPixel, latitude, viewport, projection, fov);
+
+    expect(radius).not.toBeNull();
+    expect(radius).toBeCloseTo(
+      (metersPerPixel * projection.sceneUnitsPerMeter * viewport.height) / (2 * Math.tan(fov / 2)),
+    );
+    const mapView = getMapCameraView(
+      { target: { x: 0, y: 0, z: 0 }, alpha: -Math.PI / 2, beta: Math.PI / 2, radius: radius!, fov },
+      viewport,
+      projection,
+    );
+    const mapMetersPerPixel =
+      (Math.cos((latitude * Math.PI) / 180) * 40_075_016.68557849) / (512 * 2 ** mapView!.zoom);
+    expect(mapMetersPerPixel).toBeCloseTo(metersPerPixel, 6);
+  });
+
+  it("reads the current route-camera scale for reciprocal profile focus", () => {
+    const metersPerPixel = 20;
+    const viewport = { width: 800, height: 400 };
+    const fov = Math.PI / 4;
+    const radius = getRouteCameraRadiusForMetersPerPixel(metersPerPixel, 45, viewport, projection, fov);
+    const camera = {
+      target: { x: 0, y: 0, z: 0 },
+      alpha: -Math.PI / 2,
+      beta: Math.PI / 2,
+      radius: radius!,
+      fov,
+    };
+
+    expect(getRouteCameraMetersPerPixel(camera, viewport, projection)).toBeCloseTo(metersPerPixel, 6);
+    expect(getRouteCameraMetersPerPixel(camera, { width: 800, height: 0 }, projection)).toBeNull();
+  });
+
+  it("rejects invalid profile scales and clamps to the map zoom range", () => {
+    expect(getRouteCameraRadiusForMetersPerPixel(0, 45, { width: 800, height: 400 }, projection, Math.PI / 4)).toBeNull();
+    expect(getRouteCameraRadiusForMetersPerPixel(20, 45, { width: 800, height: 0 }, projection, Math.PI / 4)).toBeNull();
+    const radius = getRouteCameraRadiusForMetersPerPixel(1e-12, 45, { width: 800, height: 400 }, projection, Math.PI / 4);
+    expect(radius).not.toBeNull();
+    const mapView = getMapCameraView(
+      { target: { x: 0, y: 0, z: 0 }, alpha: -Math.PI / 2, beta: Math.PI / 2, radius: radius!, fov: Math.PI / 4 },
+      { width: 800, height: 400 },
+      projection,
+    );
+    expect(mapView?.zoom).toBe(22);
   });
 
   it("maps the wrapped date-line longitude to its nearby scene position", () => {

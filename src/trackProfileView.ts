@@ -2,6 +2,8 @@ import { getGradientCurtainColor } from "./gradientCurtain";
 import type { TrackRoutePoint } from "./trackGeometry";
 import {
   createTrackProfileViewState,
+  focusTrackProfileView,
+  getTrackProfileMetersPerPixel,
   getTrackProfilePlotBounds,
   getTrackProfilePointAtPosition,
   getTrackProfileScreenPoint,
@@ -18,8 +20,12 @@ type PointerPosition = Readonly<{ x: number; y: number }>;
 export const createTrackProfileView = (
   canvas: HTMLCanvasElement,
   onHover: (hover: ProfileHover | null) => void,
-  onFocus: (pointIndex: number) => void,
-): Readonly<{ setRoute: (points: readonly TrackRoutePoint[]) => void; refresh: () => void }> => {
+  onFocus: (pointIndex: number, metersPerPixel?: number) => void,
+): Readonly<{
+  setRoute: (points: readonly TrackRoutePoint[]) => void;
+  focusOnPoint: (pointIndex: number, metersPerPixel: number) => void;
+  refresh: () => void;
+}> => {
   const context = canvas.getContext("2d");
   if (context === null) {
     throw new Error("The elevation profile requires a 2D canvas context.");
@@ -273,7 +279,8 @@ export const createTrackProfileView = (
     const match = getTrackProfilePointAtPosition(routePoints, viewState, getPlot(), position, 18);
     if (match !== null) {
       event.preventDefault();
-      onFocus(match.index);
+      const metersPerPixel = getTrackProfileMetersPerPixel(viewState, getPlot().width);
+      onFocus(match.index, metersPerPixel ?? undefined);
     }
   };
 
@@ -296,6 +303,22 @@ export const createTrackProfileView = (
     setRoute: (points: readonly TrackRoutePoint[]): void => {
       routePoints = points;
       viewState = points.length === 0 ? null : createTrackProfileViewState(points);
+      hover = null;
+      onHover(null);
+      draw();
+    },
+    focusOnPoint: (pointIndex: number, metersPerPixel: number): void => {
+      const point = routePoints[pointIndex];
+      if (viewState === null || point === undefined) {
+        return;
+      }
+      viewState = focusTrackProfileView(
+        viewState,
+        routePoints,
+        point.distanceMeters,
+        metersPerPixel,
+        getPlot().width,
+      );
       hover = null;
       onHover(null);
       draw();

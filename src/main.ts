@@ -12,7 +12,13 @@ import {
   startEngine,
 } from "@babylonjs/lite";
 import type { Mesh } from "@babylonjs/lite";
-import { getMapCameraView, getRouteCameraState, getWrappedAngleDifference } from "./mapCameraSync";
+import {
+  getMapCameraView,
+  getRouteCameraMetersPerPixel,
+  getRouteCameraRadiusForMetersPerPixel,
+  getRouteCameraState,
+  getWrappedAngleDifference,
+} from "./mapCameraSync";
 import {
   attachRouteCameraControls,
   centerCameraOnTrackPoint,
@@ -220,11 +226,36 @@ const initializeViewer = async (): Promise<void> => {
     let activeTrackLongitudes: readonly number[] = [];
     let activeTrackPointRayIndex = createTrackPointRayIndex([]);
     let syncingMapFromRoute = false;
+    let profileView: ReturnType<typeof createTrackProfileView> | null = null;
 
-    const focusTrackPoint = (index: number): void => {
+    const focusTrackPoint = (index: number, metersPerPixel?: number): void => {
       const point = activeGeometry?.routePoints[index];
       if (point !== undefined) {
+        const viewport = canvas.getBoundingClientRect();
+        const currentMetersPerPixel = trackProjection === null
+          ? null
+          : getRouteCameraMetersPerPixel(
+              camera,
+              { width: viewport.width, height: viewport.height },
+              trackProjection,
+            );
+        const focusMetersPerPixel = metersPerPixel ?? currentMetersPerPixel;
         centerCameraOnTrackPoint(camera, point);
+        if (metersPerPixel !== undefined && trackProjection !== null) {
+          const radius = getRouteCameraRadiusForMetersPerPixel(
+            metersPerPixel,
+            activeTrackPoints[index].latitude,
+            { width: viewport.width, height: viewport.height },
+            trackProjection,
+            camera.fov,
+          );
+          if (radius !== null) {
+            camera.radius = radius;
+          }
+        }
+        if (focusMetersPerPixel !== null) {
+          profileView?.focusOnPoint(index, focusMetersPerPixel);
+        }
       }
     };
 
@@ -325,7 +356,7 @@ const initializeViewer = async (): Promise<void> => {
     addToScene(scene, createHemisphericLight([0, 1, 0], 1));
     const hoverOverlay = createTrackHoverOverlay(engine, scene, camera, canvas);
     const profileHoverCard = createTrackHoverCard(viewer);
-    const profileView = createTrackProfileView(profileCanvas, (hover) => {
+    profileView = createTrackProfileView(profileCanvas, (hover) => {
       if (hover === null) {
         profileHoverCard.hide();
         return;
