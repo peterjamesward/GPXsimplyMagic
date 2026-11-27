@@ -9,11 +9,10 @@ import {
   type OpenStreetMapBuilding,
   type OpenStreetMapFeatures,
 } from "./openStreetMap";
-import { getRideTreeKind } from "./rideFoliage";
-import type { TreePlacement } from "./treeAssets";
 
 export type TerrainSceneryData = Readonly<{
-  treePlacements: readonly TreePlacement[];
+  foliage: TrackMeshPart;
+  trunks: TrackMeshPart;
   buildingWalls: TrackMeshPart;
   buildingRoofs: TrackMeshPart;
 }>;
@@ -89,6 +88,66 @@ const createRandom = (seed: number): (() => number) => {
 
 const isSpacedFrom = (position: Placement, others: readonly Placement[], minimumDistance: number): boolean =>
   others.every((other) => Math.hypot(position.x - other.x, position.z - other.z) >= minimumDistance);
+
+const createTree = (
+  trunks: MutableMeshPart,
+  foliage: MutableMeshPart,
+  x: number,
+  groundY: number,
+  z: number,
+  scale: number,
+  heightMeters: number,
+  rotation: number,
+): void => {
+  const height = heightMeters * scale;
+  const trunkBottom = 0.06 * height;
+  const trunkTop = 0.48 * height;
+  const trunkBottomRadius = 0.055 * height;
+  const trunkTopRadius = 0.035 * height;
+  const sides = 5;
+  const rotate = (localX: number, localZ: number): Readonly<{ x: number; z: number }> => ({
+    x: x + localX * Math.cos(rotation) - localZ * Math.sin(rotation),
+    z: z + localX * Math.sin(rotation) + localZ * Math.cos(rotation),
+  });
+
+  for (let side = 0; side < sides; side += 1) {
+    const firstAngle = (side / sides) * Math.PI * 2;
+    const secondAngle = ((side + 1) / sides) * Math.PI * 2;
+    const bottomA = rotate(Math.cos(firstAngle) * trunkBottomRadius, Math.sin(firstAngle) * trunkBottomRadius);
+    const bottomB = rotate(Math.cos(secondAngle) * trunkBottomRadius, Math.sin(secondAngle) * trunkBottomRadius);
+    const topA = rotate(Math.cos(firstAngle) * trunkTopRadius, Math.sin(firstAngle) * trunkTopRadius);
+    const topB = rotate(Math.cos(secondAngle) * trunkTopRadius, Math.sin(secondAngle) * trunkTopRadius);
+    const middleAngle = (firstAngle + secondAngle) / 2 + rotation;
+    appendQuad(trunks, [
+      { x: bottomA.x, y: groundY + trunkBottom, z: bottomA.z },
+      { x: bottomB.x, y: groundY + trunkBottom, z: bottomB.z },
+      { x: topB.x, y: groundY + trunkTop, z: topB.z },
+      { x: topA.x, y: groundY + trunkTop, z: topA.z },
+    ], { x: Math.cos(middleAngle), y: 0, z: Math.sin(middleAngle) });
+  }
+
+  const layers = [
+    { base: 0.28, tip: 0.76, radius: 0.34 },
+    { base: 0.46, tip: 0.91, radius: 0.28 },
+    { base: 0.64, tip: 1, radius: 0.21 },
+  ];
+  layers.forEach((layer) => {
+    const apex = { x, y: groundY + layer.tip * height, z };
+    const radius = layer.radius * height;
+    for (let side = 0; side < sides; side += 1) {
+      const firstAngle = (side / sides) * Math.PI * 2;
+      const secondAngle = ((side + 1) / sides) * Math.PI * 2;
+      const first = rotate(Math.cos(firstAngle) * radius, Math.sin(firstAngle) * radius);
+      const second = rotate(Math.cos(secondAngle) * radius, Math.sin(secondAngle) * radius);
+      const middleAngle = (firstAngle + secondAngle) / 2 + rotation;
+      appendTriangle(foliage, [
+        { x: first.x, y: groundY + layer.base * height, z: first.z },
+        apex,
+        { x: second.x, y: groundY + layer.base * height, z: second.z },
+      ], { x: Math.cos(middleAngle), y: 0.25, z: Math.sin(middleAngle) });
+    }
+  });
+};
 
 const createBuilding = (
   walls: MutableMeshPart,
@@ -266,7 +325,8 @@ export const createTerrainScenery = (
   const targetBuildingCount = Math.max(1, Math.min(24, Math.round(areaMeters / 22_000)));
   const planted: Placement[] = [];
   const buildings: Placement[] = [];
-  const treePlacements: TreePlacement[] = [];
+  const foliage = createMutableMeshPart();
+  const trunks = createMutableMeshPart();
   const hasMappedBuildings = features.buildings.length > 0;
   const buildingWalls = createMutableMeshPart(hasMappedBuildings);
   const buildingRoofs = createMutableMeshPart(hasMappedBuildings);
@@ -317,13 +377,16 @@ export const createTerrainScenery = (
     }
 
     planted.push(placement);
-    treePlacements.push(Object.freeze({
-      ...placement,
-      y: terrain.sampleHeightAt(placement.x, placement.z),
-      height: (8 + random() * 10) * scale,
-      kind: getRideTreeKind(random()),
-      rotation: random() * Math.PI * 2,
-    }));
+    createTree(
+      trunks,
+      foliage,
+      placement.x,
+      terrain.sampleHeightAt(placement.x, placement.z),
+      placement.z,
+      scale,
+      8 + random() * 10,
+      random() * Math.PI * 2,
+    );
   }
 
   features.buildings.forEach((building) => createMappedBuilding(building, terrain, scale, buildingWalls, buildingRoofs));
@@ -357,7 +420,8 @@ export const createTerrainScenery = (
   }
 
   return Object.freeze({
-    treePlacements: Object.freeze(treePlacements),
+    foliage: freezePart(foliage),
+    trunks: freezePart(trunks),
     buildingWalls: freezePart(buildingWalls),
     buildingRoofs: freezePart(buildingRoofs),
   });

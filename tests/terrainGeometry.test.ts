@@ -248,13 +248,11 @@ describe("terrain geometry", () => {
     const first = createTerrainScenery(terrain, geometry, 42);
     const second = createTerrainScenery(terrain, geometry, 42);
 
-    expect(first.treePlacements.length).toBeGreaterThan(0);
+    expect(first.foliage.positions.length).toBeGreaterThan(0);
     expect(first.buildingWalls.positions.length).toBeGreaterThan(0);
-    expect(first.treePlacements).toEqual(second.treePlacements);
+    expect(first.foliage.positions).toEqual(second.foliage.positions);
     expect(first.buildingRoofs.positions).toEqual(second.buildingRoofs.positions);
-    expect(first.treePlacements.every((tree) =>
-      Number.isFinite(tree.x) && Number.isFinite(tree.y) && Number.isFinite(tree.z) && tree.height > 0 &&
-      ["pine", "oak", "aspen"].includes(tree.kind) && Number.isFinite(tree.rotation))).toBe(true);
+    expect(first.foliage.normals.every(Number.isFinite)).toBe(true);
     expect(first.buildingWalls.indices.length).toBeGreaterThan(0);
   });
 
@@ -265,10 +263,14 @@ describe("terrain geometry", () => {
     ]);
     const terrain = createTerrainMeshData(geometry, () => 100, 9);
     const scenery = createTerrainScenery(terrain, geometry, 24);
-    const treesBesideRoute = scenery.treePlacements.filter((tree) =>
-      Math.abs(tree.z) <= 130 * geometry.projection.sceneUnitsPerMeter);
+    let foliageVerticesBesideRoute = 0;
+    for (let index = 2; index < scenery.foliage.positions.length; index += 3) {
+      if (Math.abs(scenery.foliage.positions[index]) <= 130 * geometry.projection.sceneUnitsPerMeter) {
+        foliageVerticesBesideRoute += 1;
+      }
+    }
 
-    expect(scenery.treePlacements.length).toBeGreaterThan(400);
-    expect(treesBesideRoute.length / scenery.treePlacements.length).toBeGreaterThan(0.75);
+    expect(scenery.foliage.positions.length / 135).toBeGreaterThan(400);
+    expect(foliageVerticesBesideRoute / (scenery.foliage.positions.length / 3)).toBeGreaterThan(0.75);
   });
 });

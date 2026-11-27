@@ -266,7 +266,8 @@ describe("OpenStreetMap route features", () => {
     const terrain = createTerrainMeshData(geometry, () => 100, 9);
     const scenery = createTerrainScenery(terrain, geometry, 42, features);
 
-    expect(scenery.treePlacements).toHaveLength(0);
+    expect(scenery.foliage.positions).toHaveLength(0);
+    expect(scenery.trunks.positions).toHaveLength(0);
     expect(scenery.buildingWalls.positions).toHaveLength(0);
     expect(scenery.buildingRoofs.positions).toHaveLength(0);
   });

@@ -4,7 +4,6 @@ import type { TerrainMeshData } from "./terrainGeometry";
 import type { TrackMeshData, TrackMeshPart } from "./trackGeometry";
 import { createRouteCamera, getPointerRay as createRoutePointerRay, updateRouteCamera, type RouteCamera, type TrackRay } from "./cameraControls";
 import type { GradientCurtainMeshData } from "./gradientCurtain";
-import { createRideTreeInstances, createRideTreePrototypes, getRideTreePrototypeResources, type RideTreePrototypes } from "./treeAssets";
 
 export type RouteRenderer = Readonly<{
   camera: RouteCamera;
@@ -66,22 +65,13 @@ const createMesh = (
   return mesh;
 };
 
-const disposeGroup = (
-  group: THREE.Group | null,
-  sharedGeometries: ReadonlySet<THREE.BufferGeometry> = new Set(),
-  sharedMaterials: ReadonlySet<THREE.Material> = new Set(),
-): void => {
+const disposeGroup = (group: THREE.Group | null): void => {
   if (group === null) return;
   group.traverse((object) => {
     if (object instanceof THREE.Mesh) {
-      if (!sharedGeometries.has(object.geometry)) object.geometry.dispose();
-      if (Array.isArray(object.material)) {
-        object.material.forEach((material) => {
-          if (!sharedMaterials.has(material)) material.dispose();
-        });
-      } else if (!sharedMaterials.has(object.material)) {
-        object.material.dispose();
-      }
+      object.geometry.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material.dispose();
     }
   });
 };
@@ -116,17 +106,6 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
   let disposed = false;
   let viewportWidth = 0;
   let viewportHeight = 0;
-  let treePrototypes: RideTreePrototypes | null = null;
-  const sharedTreeGeometries = new Set<THREE.BufferGeometry>();
-  const sharedTreeMaterials = new Set<THREE.Material>();
-  const getTreePrototypes = (): RideTreePrototypes => {
-    if (treePrototypes !== null) return treePrototypes;
-    treePrototypes = createRideTreePrototypes("large");
-    const resources = getRideTreePrototypeResources(treePrototypes);
-    resources.geometries.forEach((geometry) => sharedTreeGeometries.add(geometry));
-    resources.materials.forEach((material) => sharedTreeMaterials.add(material));
-    return treePrototypes;
-  };
 
   const resize = (): void => {
     const bounds = canvas.getBoundingClientRect();
@@ -194,7 +173,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
 
   const setLandscape = (terrain: TerrainMeshData, scenery: TerrainSceneryData): void => {
     if (landscapeGroup !== null) scene.remove(landscapeGroup);
-    disposeGroup(landscapeGroup, sharedTreeGeometries, sharedTreeMaterials);
+    disposeGroup(landscapeGroup);
     landscapeGroup = new THREE.Group();
     landscapeGroup.name = "route-landscape";
     landscapeGroup.add(createMesh(terrain, "route-terrain-ground", "#71845a", {
@@ -202,8 +181,11 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
       emissive: "#10170b",
       roughness: 1,
     }));
-    if (scenery.treePlacements.length > 0) {
-      createRideTreeInstances(scenery.treePlacements, getTreePrototypes()).forEach((instance) => landscapeGroup?.add(instance));
+    if (scenery.foliage.positions.length > 0) {
+      landscapeGroup.add(createMesh(scenery.foliage, "route-terrain-foliage", "#348046", { emissive: "#07180b", roughness: 1 }));
+    }
+    if (scenery.trunks.positions.length > 0) {
+      landscapeGroup.add(createMesh(scenery.trunks, "route-terrain-trunks", "#80543a", { emissive: "#170d08", roughness: 1 }));
     }
     if (scenery.buildingWalls.positions.length > 0) {
       landscapeGroup.add(createMesh(scenery.buildingWalls, "route-terrain-buildings", "#ad9878", { emissive: "#21190f", roughness: 0.88 }));
@@ -261,13 +243,11 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
       if (landscapeGroup !== null) scene.remove(landscapeGroup);
       if (curtainMesh !== null) scene.remove(curtainMesh);
       disposeGroup(routeGroup);
-      disposeGroup(landscapeGroup, sharedTreeGeometries, sharedTreeMaterials);
+      disposeGroup(landscapeGroup);
       if (curtainMesh !== null) {
         curtainMesh.geometry.dispose();
         disposeMaterial(curtainMesh.material);
       }
-      sharedTreeGeometries.forEach((geometry) => geometry.dispose());
-      sharedTreeMaterials.forEach((material) => material.dispose());
       renderer.dispose();
     },
   });

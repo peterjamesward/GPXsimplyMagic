@@ -1,10 +1,4 @@
 import * as THREE from "three";
-import {
-  createRideTreeInstances,
-  createRideTreePrototypes,
-  getRideTreePrototypeResources,
-  type RideTreePrototypes,
-} from "./treeAssets";
 import { createRouteConstraintIndex } from "./routeConstraints";
 import {
   createLandUseSpatialIndex,
@@ -28,13 +22,6 @@ import {
 } from "./terrainGeometry";
 import type { TerrainDemData } from "./terrainDem";
 import type { TrackMeshData, TrackMeshPart } from "./trackGeometry";
-import {
-  getRideTreeKind,
-  getRideTreeLod,
-  getRideTreeTargetCount,
-  type RideTreeKind,
-  type RideTreeLod,
-} from "./rideFoliage";
 
 type TerrainChunkRecord = Readonly<{ group: THREE.Group; revision: number }>;
 type PendingChunk = Readonly<{ descriptor: RideTerrainChunk; revision: number }>;
@@ -333,20 +320,12 @@ const createTreeGroup = (
   chunk: RideTerrainChunk,
   seed: number,
   findRouteConstraints: ReturnType<typeof createRouteConstraintIndex>,
-  prototypes: RideTreePrototypes,
 ): THREE.Group => {
   const group = new THREE.Group();
   const random = createRandom(seed);
   const scale = geometry.projection.sceneUnitsPerMeter;
-  const desired = getRideTreeTargetCount(chunk.gridSize);
-  const placements: Readonly<{
-    x: number;
-    z: number;
-    y: number;
-    height: number;
-    kind: RideTreeKind;
-    rotation: number;
-  }>[] = [];
+  const desired = chunk.gridSize >= 33 ? 62 : chunk.gridSize >= 17 ? 34 : 12;
+  const placements: Readonly<{ x: number; z: number; y: number; height: number; pine: boolean; rotation: number }>[] = [];
   const accepted: { x: number; z: number }[] = [];
   for (let attempt = 0; placements.length < desired && attempt < desired * 45; attempt += 1) {
     const x = bounds.minX + random() * (bounds.maxX - bounds.minX);
@@ -364,7 +343,7 @@ const createTreeGroup = (
       z,
       y: terrain.sampleHeightAt(x, z),
       height: heightMeters * scale * 2,
-      kind: getRideTreeKind(random()),
+      pine: random() < 0.58,
       rotation: random() * Math.PI * 2,
     }));
     accepted.push({ x, z });
@@ -374,7 +353,76 @@ const createTreeGroup = (
     return group;
   }
 
-  createRideTreeInstances(placements, prototypes).forEach((instance) => group.add(instance));
+  const trunkMaterial = new THREE.MeshStandardMaterial({ color: "#594231", roughness: 0.92 });
+  const trunkGeometry = new THREE.CylinderGeometry(0.075, 0.12, 1, 9, 2);
+  const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, placements.length);
+  const temporary = new THREE.Object3D();
+  placements.forEach((tree, index) => {
+    temporary.position.set(tree.x, tree.y + tree.height * 0.25, tree.z);
+    temporary.rotation.set(0, tree.rotation, 0);
+    temporary.scale.set(tree.height * 0.045, tree.height * 0.5, tree.height * 0.045);
+    temporary.updateMatrix();
+    trunks.setMatrixAt(index, temporary.matrix);
+  });
+  trunks.instanceMatrix.needsUpdate = true;
+  trunks.castShadow = true;
+  trunks.receiveShadow = true;
+  group.add(trunks);
+
+  const coneGeometry = new THREE.ConeGeometry(1, 1, 10, 3);
+  const pineColors = ["#2e5a3d", "#376947", "#447751"];
+  pineColors.forEach((color, tier) => {
+    const pineTrees = placements.filter((tree) => tree.pine);
+    if (pineTrees.length === 0) return;
+    const foliage = new THREE.InstancedMesh(
+      coneGeometry,
+      new THREE.MeshPhysicalMaterial({ color, roughness: 0.78, clearcoat: 0.08 }),
+      pineTrees.length,
+    );
+    pineTrees.forEach((tree, index) => {
+      const tierHeight = tree.height * [0.46, 0.38, 0.32][tier];
+      const tierRadius = tree.height * [0.23, 0.18, 0.13][tier];
+      temporary.position.set(tree.x, tree.y + tree.height * [0.34, 0.53, 0.7][tier], tree.z);
+      temporary.rotation.set(0, tree.rotation, 0);
+      temporary.scale.set(tierRadius, tierHeight, tierRadius);
+      temporary.updateMatrix();
+      foliage.setMatrixAt(index, temporary.matrix);
+    });
+    foliage.instanceMatrix.needsUpdate = true;
+    foliage.castShadow = true;
+    foliage.receiveShadow = true;
+    group.add(foliage);
+  });
+
+  const broadleafTrees = placements.filter((tree) => !tree.pine);
+  if (broadleafTrees.length > 0) {
+    const leafGeometry = new THREE.IcosahedronGeometry(1, 1);
+    ["#487c4d", "#5c8c54", "#70985a", "#3e7048"].forEach((color, cluster) => {
+      const leaves = new THREE.InstancedMesh(
+        leafGeometry,
+        new THREE.MeshPhysicalMaterial({ color, roughness: 0.82, clearcoat: 0.04 }),
+        broadleafTrees.length,
+      );
+      broadleafTrees.forEach((tree, index) => {
+        const phase = tree.rotation + cluster * Math.PI * 0.5;
+        const offset = cluster === 0 ? 0 : tree.height * 0.12;
+        temporary.position.set(
+          tree.x + Math.cos(phase) * offset,
+          tree.y + tree.height * (cluster === 0 ? 0.77 : 0.68 + (cluster % 2) * 0.08),
+          tree.z + Math.sin(phase) * offset,
+        );
+        temporary.rotation.set(0.2 * Math.sin(phase), phase, 0.1 * Math.cos(phase));
+        const radius = tree.height * (cluster === 0 ? 0.24 : 0.18);
+        temporary.scale.set(radius * 1.1, radius * 0.86, radius);
+        temporary.updateMatrix();
+        leaves.setMatrixAt(index, temporary.matrix);
+      });
+      leaves.instanceMatrix.needsUpdate = true;
+      leaves.castShadow = true;
+      leaves.receiveShadow = true;
+      group.add(leaves);
+    });
+  }
 
   return group;
 };
@@ -491,7 +539,6 @@ const makeChunkGroup = (
   materialForMappedRoad: (surface: MappedRoadSurface) => THREE.MeshStandardMaterial,
   index: LandUseSpatialIndex,
   findRouteConstraints: ReturnType<typeof createRouteConstraintIndex>,
-  prototypes: RideTreePrototypes,
 ): THREE.Group => {
   const sceneScale = geometry.projection.sceneUnitsPerMeter;
   const terrain = createTerrainChunkMeshData(
@@ -524,7 +571,6 @@ const makeChunkGroup = (
     descriptor,
     seedForChunk(descriptor.key),
     findRouteConstraints,
-    prototypes,
   ));
   group.add(createMappedBuildings(descriptor, terrain, geometry, features.buildings));
   group.userData.terrainRevision = revision;
@@ -539,19 +585,6 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
   renderer.toneMappingExposure = 1.12;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  const treePrototypesByLod = new Map<RideTreeLod, RideTreePrototypes>();
-  const sharedTreeGeometries = new Set<THREE.BufferGeometry>();
-  const sharedTreeMaterials = new Set<THREE.Material>();
-  const getTreePrototypes = (lod: RideTreeLod): RideTreePrototypes => {
-    const cached = treePrototypesByLod.get(lod);
-    if (cached !== undefined) return cached;
-    const prototypes = createRideTreePrototypes(lod);
-    treePrototypesByLod.set(lod, prototypes);
-    const resources = getRideTreePrototypeResources(prototypes);
-    resources.geometries.forEach((geometry) => sharedTreeGeometries.add(geometry));
-    resources.materials.forEach((material) => sharedTreeMaterials.add(material));
-    return prototypes;
-  };
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#aebfbd");
@@ -668,13 +701,11 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
           if (
             material !== roadMaterial &&
             material !== markingMaterial &&
-            !sharedTreeMaterials.has(material) &&
             ![...groundMaterials.values(), ...mappedRoadMaterials.values()].includes(material as THREE.MeshStandardMaterial)
           ) {
             material.dispose();
           }
         });
-        if (!sharedTreeGeometries.has(object.geometry)) object.geometry.dispose();
       }
     });
     chunks.delete(key);
@@ -724,7 +755,6 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
         materialForMappedRoad,
         landUseIndex,
         routeIndex,
-        getTreePrototypes(getRideTreeLod(pending.descriptor.gridSize)),
       );
       removeChunk(pending.descriptor.key);
       scene.add(group);
@@ -838,8 +868,6 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
       patternTextures.forEach((texture) => texture.dispose());
       groundMaterials.forEach((material) => material.dispose());
       mappedRoadMaterials.forEach((material) => material.dispose());
-      sharedTreeGeometries.forEach((geometry) => geometry.dispose());
-      sharedTreeMaterials.forEach((material) => material.dispose());
       asphaltTextures.color.dispose();
       asphaltTextures.normal.dispose();
       roadMaterial.dispose();
