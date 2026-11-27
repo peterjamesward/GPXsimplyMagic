@@ -1,26 +1,14 @@
-import {
-  addToScene,
-  createLineMaterial,
-  createLineSystem,
-  getCameraPosition,
-  getEffectiveAspectRatio,
-  getViewMatrix,
-  getViewProjectionMatrix,
-  projectWorldToScreen,
-  setMeshVisible,
-  updateLineSystem,
-} from "@babylonjs/lite";
-import type { ArcRotateCamera, EngineContext, SceneContext } from "@babylonjs/lite";
-import { getCameraViewDirection, getPointerRay } from "./cameraControls";
+import * as THREE from "three";
+import { getCameraPosition, getCameraViewDirection, type RouteCamera } from "./cameraControls";
 import { createTrackPointRayIndex } from "./trackHover";
 import type { TrackMeshData, TrackRoutePoint } from "./trackGeometry";
+import type { RouteRenderer } from "./routeRenderer";
 import { createTrackHoverCard } from "./trackHoverCard";
 import { getTrackHoverLayout, getTrackHoverTolerance } from "./trackHoverLayout";
 
 export const createTrackHoverOverlay = (
-  engine: EngineContext,
-  scene: SceneContext,
-  camera: ArcRotateCamera,
+  renderer: Pick<RouteRenderer, "addOverlay" | "getPointerRay">,
+  camera: RouteCamera,
   canvas: HTMLCanvasElement,
 ): Readonly<{
   setRoute: (geometry: TrackMeshData | null) => void;
@@ -33,34 +21,30 @@ export const createTrackHoverOverlay = (
     throw new Error("The track hover overlay requires the viewer canvas to be attached to a parent element.");
   }
   const card = createTrackHoverCard(overlayHost);
-
-  const leader = createLineSystem(engine, {
-    name: "track-hover-leader",
-    lines: [[{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }]],
-    material: createLineMaterial({
-      color: { r: 1, g: 1, b: 1, a: 1 },
-      depthWrite: false,
-      depthCompare: "always",
-    }),
-  });
-  leader.pickable = false;
-  leader.renderOnTop = true;
-  addToScene(scene, leader);
-  setMeshVisible(leader, false);
+  const leaderPositions = new Float32Array(6);
+  const leaderGeometry = new THREE.BufferGeometry();
+  const leaderAttribute = new THREE.BufferAttribute(leaderPositions, 3);
+  leaderAttribute.setUsage(THREE.DynamicDrawUsage);
+  leaderGeometry.setAttribute("position", leaderAttribute);
+  const leader = new THREE.Line(
+    leaderGeometry,
+    new THREE.LineBasicMaterial({ color: "#ffffff", depthTest: false, depthWrite: false }),
+  );
+  leader.name = "track-hover-leader";
+  leader.renderOrder = 10_000;
+  leader.frustumCulled = false;
+  leader.visible = false;
+  renderer.addOverlay(leader);
 
   let route: TrackMeshData | null = null;
   let findPointNearRay = createTrackPointRayIndex([]);
   let lastPointNumber: number | null = null;
   let activePoint: TrackRoutePoint | null = null;
-  let visible = false;
 
   const hide = (): void => {
     activePoint = null;
     card.hide();
-    if (visible) {
-      setMeshVisible(leader, false);
-      visible = false;
-    }
+    leader.visible = false;
   };
 
   const setRoute = (geometry: TrackMeshData | null): void => {
@@ -71,10 +55,7 @@ export const createTrackHoverOverlay = (
   };
 
   const positionOverlay = (): void => {
-    if (activePoint === null) {
-      return;
-    }
-
+    if (activePoint === null) return;
     const forward = getCameraViewDirection(camera);
     const bounds = canvas.getBoundingClientRect();
     const hostBounds = overlayHost.getBoundingClientRect();
@@ -83,25 +64,16 @@ export const createTrackHoverOverlay = (
       return;
     }
 
-    const projection = projectWorldToScreen(
-      activePoint,
-      getViewMatrix(camera),
-      getViewProjectionMatrix(camera, getEffectiveAspectRatio(camera, bounds.width, bounds.height)),
-      {
-        viewport: { x: 0, y: 0, width: bounds.width, height: bounds.height },
-        backingWidth: bounds.width,
-        backingHeight: bounds.height,
-        cssWidth: bounds.width,
-        cssHeight: bounds.height,
-      },
-    );
-    if (projection.behindCamera || !Number.isFinite(projection.cssX) || !Number.isFinite(projection.cssY)) {
+    const cameraPoint = new THREE.Vector3(activePoint.x, activePoint.y, activePoint.z);
+    const projected = cameraPoint.clone().project(camera.renderCamera);
+    const screenX = ((projected.x + 1) / 2) * bounds.width;
+    const screenY = ((1 - projected.y) / 2) * bounds.height;
+    if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) {
       hide();
       return;
     }
-
     const layout = getTrackHoverLayout(
-      { x: projection.cssX, y: projection.cssY },
+      { x: screenX, y: screenY },
       { width: bounds.width, height: bounds.height },
     );
     if (layout === null) {
@@ -118,16 +90,13 @@ export const createTrackHoverOverlay = (
       hide();
       return;
     }
-
     const worldUnitsPerPixel = (2 * depth * Math.tan(camera.fov / 2)) / bounds.height;
     if (!Number.isFinite(worldUnitsPerPixel) || worldUnitsPerPixel <= 0) {
       hide();
       return;
     }
 
-    const panelRay = getPointerRay(
-      camera,
-      canvas,
+    const panelRay = renderer.getPointerRay(
       bounds.left + layout.centerX,
       bounds.top + layout.centerY,
     );
@@ -135,25 +104,18 @@ export const createTrackHoverOverlay = (
       hide();
       return;
     }
-    const rayDirection = {
-      x: panelRay.direction[0],
-      y: panelRay.direction[1],
-      z: panelRay.direction[2],
-    };
-    const rayOrigin = {
-      x: panelRay.origin[0],
-      y: panelRay.origin[1],
-      z: panelRay.origin[2],
-    };
+    const rayDirection = panelRay.direction;
+    const rayOrigin = panelRay.origin;
     const rayForward = rayDirection.x * forward.x + rayDirection.y * forward.y + rayDirection.z * forward.z;
     if (Math.abs(rayForward) < 1e-8) {
       hide();
       return;
     }
-    const rayDistance =
-      ((activePoint.x - rayOrigin.x) * forward.x +
-        (activePoint.y - rayOrigin.y) * forward.y +
-        (activePoint.z - rayOrigin.z) * forward.z) / rayForward;
+    const rayDistance = (
+      (activePoint.x - rayOrigin.x) * forward.x +
+      (activePoint.y - rayOrigin.y) * forward.y +
+      (activePoint.z - rayOrigin.z) * forward.z
+    ) / rayForward;
     if (rayDistance <= 0) {
       hide();
       return;
@@ -175,8 +137,8 @@ export const createTrackHoverOverlay = (
       z: forward.x * right.y - forward.y * right.x,
     };
 
-    const anchorDeltaX = projection.cssX - layout.centerX;
-    const anchorDeltaY = projection.cssY - layout.centerY;
+    const anchorDeltaX = screenX - layout.centerX;
+    const anchorDeltaY = screenY - layout.centerY;
     const edgeFraction = Math.min(
       1,
       Math.abs(anchorDeltaX) < 1e-8 ? Number.POSITIVE_INFINITY : layout.width / 2 / Math.abs(anchorDeltaX),
@@ -187,13 +149,12 @@ export const createTrackHoverOverlay = (
       y: cameraPlaneCenter.y + right.y * anchorDeltaX * edgeFraction * worldUnitsPerPixel - up.y * anchorDeltaY * edgeFraction * worldUnitsPerPixel,
       z: cameraPlaneCenter.z + right.z * anchorDeltaX * edgeFraction * worldUnitsPerPixel - up.z * anchorDeltaY * edgeFraction * worldUnitsPerPixel,
     };
-    updateLineSystem(engine, leader, { lines: [[activePoint, leaderEnd]] });
+    leaderPositions.set([activePoint.x, activePoint.y, activePoint.z, leaderEnd.x, leaderEnd.y, leaderEnd.z]);
+    leaderAttribute.needsUpdate = true;
+    leaderGeometry.computeBoundingSphere();
     card.setLayout(layout, { x: bounds.left - hostBounds.left, y: bounds.top - hostBounds.top });
     card.show();
-    if (!visible) {
-      setMeshVisible(leader, true);
-      visible = true;
-    }
+    leader.visible = true;
   };
 
   const updatePointer = (clientX: number, clientY: number): void => {
@@ -201,22 +162,14 @@ export const createTrackHoverOverlay = (
       hide();
       return;
     }
-
     const bounds = canvas.getBoundingClientRect();
-    const pickingRay = getPointerRay(camera, canvas, clientX, clientY);
-    const ray = pickingRay === null
-      ? null
-      : {
-          origin: { x: pickingRay.origin[0], y: pickingRay.origin[1], z: pickingRay.origin[2] },
-          direction: { x: pickingRay.direction[0], y: pickingRay.direction[1], z: pickingRay.direction[2] },
-        };
+    const ray = renderer.getPointerRay(clientX, clientY);
     const tolerance = getTrackHoverTolerance(route.roadHalfWidth, camera.radius, camera.fov, bounds.height);
     const point = ray === null ? null : findPointNearRay(ray, tolerance);
     if (point === null) {
       hide();
       return;
     }
-
     activePoint = point;
     if (lastPointNumber !== point.pointNumber) {
       card.setPoint(point);
@@ -225,5 +178,10 @@ export const createTrackHoverOverlay = (
     positionOverlay();
   };
 
-  return Object.freeze({ setRoute, updatePointer, refresh: positionOverlay, hide });
+  return Object.freeze({
+    setRoute,
+    updatePointer,
+    refresh: positionOverlay,
+    hide,
+  });
 };

@@ -1,15 +1,14 @@
-// @vitest-environment happy-dom
-import { describe, expect, it, vi } from "vitest";
-import { createArcRotateCamera, getCameraPosition, pickWithRayPrecise } from "@babylonjs/lite";
+import { describe, expect, it } from "vitest";
 import {
+  centerCameraOnTrackPoint,
+  createRouteCamera,
+  fitCameraToBounds,
+  getCameraPosition,
   getCameraViewDirection,
-  getPointerZoomAnchor,
   getPointerPanAnchor,
   getPointerPlaneIntersection,
+  getPointerZoomAnchor,
   getViewportCenterOrbitTarget,
-  createRouteCamera,
-  centerCameraOnTrackPoint,
-  fitCameraToBounds,
   isControlClickOrbit,
   isPrimaryDragPan,
   panCameraToPointerAnchor,
@@ -17,28 +16,9 @@ import {
   zoomCameraAtPointer,
 } from "../src/cameraControls";
 
-vi.mock("@babylonjs/lite", async (importOriginal) => {
-  const lite = await importOriginal<typeof import("@babylonjs/lite")>();
-  return {
-    ...lite,
-    pickWithRayPrecise: vi.fn(() => ({
-      hit: true,
-      distance: 18,
-      pickedPoint: [3, 4, 5],
-      pickedNormal: null,
-      pickedNormalWorld: null,
-      pickedFaceNormal: null,
-      pickedFaceNormalWorld: null,
-      pickedMesh: null,
-      faceId: -1,
-      bu: 0,
-      bv: 0,
-      subMeshId: -1,
-      thinInstanceIndex: -1,
-      ray: null,
-    })),
-  };
-});
+const createCanvas = (left = 100, top = 50, width = 800, height = 600): HTMLCanvasElement => ({
+  getBoundingClientRect: () => ({ left, top, width, height }),
+} as HTMLCanvasElement);
 
 describe("route camera controls", () => {
   it("centers on a track point and clears pending camera motion", () => {
@@ -80,10 +60,8 @@ describe("route camera controls", () => {
   });
 
   it("keeps the mouse position anchored during zoom", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
-    const canvas = {
-      getBoundingClientRect: () => ({ left: 100, top: 50, width: 800, height: 600 }),
-    } as HTMLCanvasElement;
+    const camera = createRouteCamera();
+    const canvas = createCanvas();
     const cursor = { x: 650, y: 180 };
     const anchorBefore = getPointerZoomAnchor(camera, canvas, cursor.x, cursor.y);
 
@@ -97,11 +75,9 @@ describe("route camera controls", () => {
     expect(anchorAfter?.z).toBeCloseTo(anchorBefore?.z ?? 0, 6);
   });
 
-  it("centers and zooms out to fit track bounds with viewport padding", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
-    const canvas = {
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
-    } as HTMLCanvasElement;
+  it("centers and fits route bounds with viewport padding", () => {
+    const camera = createRouteCamera();
+    const canvas = createCanvas(0, 0, 800, 600);
     camera.inertialRadiusOffset = 2;
     camera.inertialPanningX = 1;
 
@@ -122,14 +98,10 @@ describe("route camera controls", () => {
     expect(camera.inertialPanningX).toBe(0);
   });
 
-  it("uses the viewport aspect ratio and refits when a different track is loaded", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
-    const landscapeCanvas = {
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
-    } as HTMLCanvasElement;
-    const portraitCanvas = {
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 600 }),
-    } as HTMLCanvasElement;
+  it("fits to the viewport aspect ratio and refits a new route", () => {
+    const camera = createRouteCamera();
+    const landscapeCanvas = createCanvas(0, 0, 800, 600);
+    const portraitCanvas = createCanvas(0, 0, 300, 600);
     const bounds = { minX: -10, maxX: 10, minY: -2, maxY: 2, minZ: -1, maxZ: 1 };
 
     fitCameraToBounds(camera, landscapeCanvas, bounds);
@@ -152,11 +124,9 @@ describe("route camera controls", () => {
     expect(camera.radius).toBeLessThan(landscapeRadius);
   });
 
-  it("keeps the point grabbed at drag start beneath the moving pointer", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
-    const canvas = {
-      getBoundingClientRect: () => ({ left: 100, top: 50, width: 800, height: 600 }),
-    } as HTMLCanvasElement;
+  it("keeps the grabbed point beneath the pointer while panning", () => {
+    const camera = createRouteCamera();
+    const canvas = createCanvas();
     const normal = getCameraViewDirection(camera);
     expect(normal).not.toBeNull();
     const anchorPoint = getPointerPlaneIntersection(
@@ -172,31 +142,18 @@ describe("route camera controls", () => {
     const anchor = { point: anchorPoint ?? { x: 0, y: 0, z: 0 }, normal: normal ?? { x: 0, y: 0, z: 1 } };
     expect(panCameraToPointerAnchor(camera, canvas, 320, 420, anchor)).toBe(true);
 
-    const pointUnderPointer = getPointerPlaneIntersection(
-      camera,
-      canvas,
-      320,
-      420,
-      anchor.point,
-      anchor.normal,
-    );
+    const pointUnderPointer = getPointerPlaneIntersection(camera, canvas, 320, 420, anchor.point, anchor.normal);
     expect(pointUnderPointer?.x).toBeCloseTo(anchor.point.x, 5);
     expect(pointUnderPointer?.y).toBeCloseTo(anchor.point.y, 5);
     expect(pointUnderPointer?.z).toBeCloseTo(anchor.point.z, 5);
   });
 
   it("uses the road point beneath the pointer as the pan anchor", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
-    const canvas = {
-      getBoundingClientRect: () => ({ left: 100, top: 50, width: 800, height: 600 }),
-    } as HTMLCanvasElement;
-    const scene = { meshes: [] } as never;
+    const camera = createRouteCamera();
+    const canvas = createCanvas();
+    const pickRoad = () => ({ x: 3, y: 4, z: 5 });
 
-    expect(getPointerPanAnchor(camera, canvas, scene, 500, 300)?.point).toEqual({ x: 3, y: 4, z: 5 });
-
-    const options = vi.mocked(pickWithRayPrecise).mock.calls.at(-1)?.[2];
-    expect(options?.predicate?.({ name: "gpx-road-surface" } as never, -1)).toBe(true);
-    expect(options?.predicate?.({ name: "unrelated-mesh" } as never, -1)).toBe(false);
+    expect(getPointerPanAnchor(camera, canvas, pickRoad, 500, 300)?.point).toEqual({ x: 3, y: 4, z: 5 });
   });
 
   it("pans on a plain primary drag and orbits on a Control-primary drag", () => {
@@ -208,21 +165,15 @@ describe("route camera controls", () => {
   });
 
   it("uses the road point at the viewport center as the orbit target", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
-    const canvas = {
-      getBoundingClientRect: () => ({ left: 100, top: 50, width: 800, height: 600 }),
-    } as HTMLCanvasElement;
-    const scene = { meshes: [] } as never;
+    const camera = createRouteCamera();
+    const canvas = createCanvas();
+    const pickRoad = () => ({ x: 3, y: 4, z: 5 });
 
-    expect(getViewportCenterOrbitTarget(camera, canvas, scene)).toEqual({ x: 3, y: 4, z: 5 });
-
-    const options = vi.mocked(pickWithRayPrecise).mock.calls.at(-1)?.[2];
-    expect(options?.predicate?.({ name: "gpx-road-surface" } as never, -1)).toBe(true);
-    expect(options?.predicate?.({ name: "unrelated-mesh" } as never, -1)).toBe(false);
+    expect(getViewportCenterOrbitTarget(camera, canvas, pickRoad)).toEqual({ x: 3, y: 4, z: 5 });
   });
 
-  it("keeps the camera position unchanged when setting a new orbit target", () => {
-    const camera = createArcRotateCamera(-Math.PI / 2, 1.08, 18, { x: 0, y: 0, z: 0 });
+  it("preserves camera position when setting a new orbit target", () => {
+    const camera = createRouteCamera();
     const cameraPositionBefore = getCameraPosition(camera);
     const target = {
       x: (cameraPositionBefore.x + camera.target.x) / 2,

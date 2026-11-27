@@ -1,39 +1,21 @@
 import {
-  addToScene,
-  createEngine,
-  createDirectionalLight,
-  createHemisphericLight,
-  createMeshFromData,
-  createSceneContext,
-  createStandardMaterial,
-  enableStandardVertexColors,
-  removeFromScene,
-  registerScene,
-  setMeshVisible,
-  setFog,
-  startEngine,
-} from "@babylonjs/lite";
-import type { Mesh } from "@babylonjs/lite";
-import {
   getMapCameraView,
   getRouteCameraMetersPerPixel,
   getRouteCameraRadiusForMetersPerPixel,
   getRouteCameraState,
   getWrappedAngleDifference,
 } from "./mapCameraSync";
+import type { RouteCamera } from "./cameraControls";
 import {
   attachRouteCameraControls,
   centerCameraOnTrackPoint,
-  createRouteCamera,
   fitCameraToBounds,
-  getPointerRay,
 } from "./cameraControls";
 import { parseGpx, type Track } from "./gpx";
 import {
   createTrackMeshData,
   getContinuousLongitudes,
   type TrackMeshData,
-  type TrackMeshPart,
   type TrackProjection,
 } from "./trackGeometry";
 import {
@@ -47,7 +29,7 @@ import { createTrackHoverOverlay } from "./trackHoverOverlay";
 import { getTrackHoverLayout, getTrackHoverTolerance } from "./trackHoverLayout";
 import { createTrackHoverCard } from "./trackHoverCard";
 import { findNearestScreenPointIndex } from "./trackPointFocus";
-import { createGradientCurtainMeshData, type GradientCurtainMeshData } from "./gradientCurtain";
+import { createGradientCurtainMeshData } from "./gradientCurtain";
 import { createTrackProfileView } from "./trackProfileView";
 import {
   createTerrainDemLoader,
@@ -133,12 +115,12 @@ const showView = (view: ViewerMode): void => {
   });
   routeViewPanel.setAttribute("aria-hidden", String(isMapActive));
   routeViewPanel.setAttribute("aria-labelledby", isRideActive ? "show-ride-view" : "show-route-view");
-  routeViewPanel.setAttribute("aria-label", isRideActive ? "First-person bicycle ride view" : "Babylon 3D route view");
+  routeViewPanel.setAttribute("aria-label", isRideActive ? "First-person bicycle ride view" : "Three.js 3D route view");
   terrainViewPanel.setAttribute("aria-hidden", String(!isMapActive));
   routeViewPanel.inert = isMapActive;
   terrainViewPanel.inert = !isMapActive;
   routeViewPanel.classList.toggle("is-riding", isRideActive);
-  terrainControl.hidden = isMapActive;
+  terrainControl.hidden = view !== "route";
   rideControls.hidden = !isRideActive;
   rideCockpit.toggleAttribute("hidden", !isRideActive);
   activateSceneView(view);
@@ -172,93 +154,13 @@ const setStatus = (message: string, isError = false): void => {
   statusMessage.classList.toggle("is-error", isError);
 };
 
-const createRoadMesh = (
-  engine: Awaited<ReturnType<typeof createEngine>>,
-  name: string,
-  geometry: TrackMeshPart,
-  diffuseColor: [number, number, number],
-  emissiveColor: [number, number, number],
-): Mesh => {
-  const mesh = createMeshFromData(
-    engine,
-    name,
-    new Float32Array(geometry.positions),
-    new Float32Array(geometry.normals),
-    new Uint32Array(geometry.indices),
-  );
-  const material = createStandardMaterial();
-  material.backFaceCulling = false;
-  material.diffuseColor = diffuseColor;
-  material.emissiveColor = emissiveColor;
-  material.specularColor = [0.12, 0.12, 0.12];
-  material.specularPower = 24;
-  mesh.material = material;
-  return mesh;
-};
-
-const createGradientCurtainMesh = (
-  engine: Awaited<ReturnType<typeof createEngine>>,
-  geometry: GradientCurtainMeshData,
-): Mesh => {
-  const mesh = createMeshFromData(
-    engine,
-    "route-gradient-curtain",
-    new Float32Array(geometry.positions),
-    new Float32Array(geometry.normals),
-    new Uint32Array(geometry.indices),
-    undefined,
-    undefined,
-    undefined,
-    new Float32Array(geometry.colors),
-  );
-  const material = createStandardMaterial();
-  material.backFaceCulling = false;
-  material.disableLighting = true;
-  material.diffuseColor = [1, 1, 1];
-  material.emissiveColor = [1, 1, 1];
-  material.alpha = 0.82;
-  mesh.material = material;
-  return mesh;
-};
-
-const createLandscapeMesh = (
-  engine: Awaited<ReturnType<typeof createEngine>>,
-  name: string,
-  geometry: TrackMeshPart,
-  diffuseColor: [number, number, number],
-  emissiveColor: [number, number, number],
-): Mesh => {
-  const mesh = createMeshFromData(
-    engine,
-    name,
-    new Float32Array(geometry.positions),
-    new Float32Array(geometry.normals),
-    new Uint32Array(geometry.indices),
-    undefined,
-    undefined,
-    undefined,
-    geometry.colors === undefined ? undefined : new Float32Array(geometry.colors),
-  );
-  const material = createStandardMaterial();
-  material.backFaceCulling = false;
-  material.disableLighting = geometry.colors !== undefined;
-  material.diffuseColor = geometry.colors === undefined ? diffuseColor : [1, 1, 1];
-  material.emissiveColor = geometry.colors === undefined ? emissiveColor : [1, 1, 1];
-  material.specularColor = [0.08, 0.08, 0.08];
-  material.specularPower = 12;
-  mesh.material = material;
-  return mesh;
-};
-
 const initializeViewer = async (): Promise<void> => {
   try {
-    const [engine, { createTerrainMap }] = await Promise.all([
-      createEngine(canvas),
+    const [routeRenderer, { createTerrainMap }] = await Promise.all([
+      import("./routeRenderer").then(({ createRouteRenderer: createRenderer }) => createRenderer(canvas)),
       import("./maplibreTerrain"),
     ]);
-    enableStandardVertexColors();
-    const scene = createSceneContext(engine);
-    const camera = createRouteCamera();
+    const camera: RouteCamera = routeRenderer.camera;
     const terrainMap = createTerrainMap(mapContainer, mapError);
     let trackProjection: TrackProjection | null = null;
     let activeGeometry: TrackMeshData | null = null;
@@ -405,14 +307,10 @@ const initializeViewer = async (): Promise<void> => {
     const mapResizeObserver = new ResizeObserver(() => terrainMap.map.resize());
     mapResizeObserver.observe(mapContainer);
 
-    scene.clearColor = { r: 0.55, g: 0.75, b: 0.87, a: 1 };
-    setFog(scene, { mode: 3, density: 0, start: 60, end: 180, color: [0.55, 0.75, 0.87] });
-    scene.camera = camera;
     activateSceneView = (view): void => {
-      scene.camera = camera;
       const isRideActive = view === "ride";
-      canvas.hidden = isRideActive;
       rideCanvas.hidden = !isRideActive;
+      routeRenderer.setActive(view === "route");
       if (isRideActive && rideRenderer === null && rideRendererLoad === null) {
         rideRendererLoad = import("./rideRenderer").then(({ createRideRenderer }) => {
           rideRenderer = createRideRenderer(rideCanvas);
@@ -439,10 +337,8 @@ const initializeViewer = async (): Promise<void> => {
       updateTerrainForZoom();
     };
     activateSceneView(activeView);
-    attachRouteCameraControls(camera, canvas, scene);
-    addToScene(scene, createHemisphericLight([0, 1, 0], 1));
-    addToScene(scene, createDirectionalLight([-0.4, -1, -0.25], 1.25));
-    const hoverOverlay = createTrackHoverOverlay(engine, scene, camera, canvas);
+    attachRouteCameraControls(camera, canvas, routeRenderer.pickRoad);
+    const hoverOverlay = createTrackHoverOverlay(routeRenderer, camera, canvas);
     const profileHoverCard = createTrackHoverCard(viewer);
     clearSceneHover = (): void => {
       hoverOverlay.hide();
@@ -534,21 +430,15 @@ const initializeViewer = async (): Promise<void> => {
         return;
       }
 
-      const pickingRay = getPointerRay(camera, canvas, event.clientX, event.clientY);
+      const pickingRay = routeRenderer.getPointerRay(event.clientX, event.clientY);
       const bounds = canvas.getBoundingClientRect();
-      const ray = pickingRay === null
-        ? null
-        : {
-            origin: { x: pickingRay.origin[0], y: pickingRay.origin[1], z: pickingRay.origin[2] },
-            direction: { x: pickingRay.direction[0], y: pickingRay.direction[1], z: pickingRay.direction[2] },
-          };
       const tolerance = getTrackHoverTolerance(
         activeGeometry.roadHalfWidth,
         camera.radius,
         camera.fov,
         bounds.height,
       );
-      const point = ray === null ? null : activeTrackPointRayIndex(ray, tolerance);
+      const point = pickingRay === null ? null : activeTrackPointRayIndex(pickingRay, tolerance);
       if (point !== null) {
         event.preventDefault();
         focusTrackPoint(point.pointNumber - 1);
@@ -559,8 +449,6 @@ const initializeViewer = async (): Promise<void> => {
       hoverOverlay.updatePointer(event.clientX, event.clientY);
     });
     canvas.addEventListener("pointerleave", hoverOverlay.hide);
-    await registerScene(scene);
-    await startEngine(engine);
     let lastRideFrameTime: number | null = null;
     let lastRideHudTime = 0;
     const advanceRide = (now: number): void => {
@@ -589,9 +477,6 @@ const initializeViewer = async (): Promise<void> => {
     };
     requestAnimationFrame(refreshHoverOverlay);
 
-    let activeMeshes: readonly Mesh[] = [];
-    let activeLandscapeMeshes: readonly Mesh[] = [];
-    let activeGradientCurtainMeshes: readonly Mesh[] = [];
     let terrainVisible = terrainVisibilityToggle.checked;
     let terrainRequestId = 0;
     let terrainRequestController: AbortController | null = null;
@@ -604,8 +489,7 @@ const initializeViewer = async (): Promise<void> => {
     let terrainLoadInProgress = false;
     terrainVisibilityToggle.addEventListener("change", () => {
       terrainVisible = terrainVisibilityToggle.checked;
-      activeLandscapeMeshes.forEach((mesh) => setMeshVisible(mesh, terrainVisible));
-      activeGradientCurtainMeshes.forEach((mesh) => setMeshVisible(mesh, !terrainVisible));
+      routeRenderer.setTerrainVisible(terrainVisible);
     });
 
     const renderTrack = (track: Track): void => {
@@ -642,32 +526,13 @@ const initializeViewer = async (): Promise<void> => {
         ...geometry.bounds,
         minY: Math.min(geometry.bounds.minY, gradientCurtain.bounds.minY),
       });
-      const gradientCurtainMeshes = gradientCurtain.indices.length === 0
-        ? []
-        : [createGradientCurtainMesh(engine, gradientCurtain)];
       const roadMarkings = createRideRoadMarkings(
         geometry.routePoints,
         geometry.roadHalfWidth,
         geometry.projection.sceneUnitsPerMeter,
       );
-      const roadMarkingMeshes = roadMarkings.indices.length === 0
-        ? []
-        : [createLandscapeMesh(engine, "ride-road-markings", roadMarkings, [1, 1, 1], [1, 1, 1])];
-      const meshes: Mesh[] = [
-        createRoadMesh(engine, "gpx-road", geometry, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
-        createRoadMesh(engine, "gpx-road-left", geometry.leftSide, [0.08, 0.68, 0.16], [0.015, 0.1, 0.025]),
-        createRoadMesh(engine, "gpx-road-right", geometry.rightSide, [0.78, 0.08, 0.06], [0.12, 0.015, 0.012]),
-        createRoadMesh(engine, "gpx-road-surface", geometry.topSurface, [0.17, 0.18, 0.19], [0.035, 0.037, 0.04]),
-        ...roadMarkingMeshes,
-        ...gradientCurtainMeshes,
-      ];
-
-      activeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
-      activeLandscapeMeshes = [];
-      meshes.forEach((mesh) => addToScene(scene, mesh));
-      gradientCurtainMeshes.forEach((mesh) => setMeshVisible(mesh, !terrainVisible));
-      activeMeshes = meshes;
-      activeGradientCurtainMeshes = gradientCurtainMeshes;
+      routeRenderer.setRoute(geometry, gradientCurtain, roadMarkings);
+      routeRenderer.setTerrainVisible(terrainVisible);
       hoverOverlay.setRoute(geometry);
       fitCameraToBounds(camera, canvas, cameraBounds);
       const captureCamera = () => ({
@@ -714,32 +579,8 @@ const initializeViewer = async (): Promise<void> => {
         const noElevation: TerrainElevationSampler = () => null;
         const terrain = createTerrainMeshData(geometry, elevationData?.elevationAt ?? noElevation, gridSize, terrainColorAt);
         const scenery = createTerrainScenery(terrain, geometry, undefined, features, landUseIndex);
-        const landscapeMeshes = [
-          createLandscapeMesh(engine, "route-terrain-ground", terrain, [0.3, 0.4, 0.24], [0.035, 0.05, 0.025]),
-          ...(scenery.foliage.positions.length === 0
-            ? []
-            : [createLandscapeMesh(engine, "route-terrain-foliage", scenery.foliage, [0.08, 0.27, 0.1], [0.01, 0.04, 0.015])]),
-          ...(scenery.trunks.positions.length === 0
-            ? []
-            : [createLandscapeMesh(engine, "route-terrain-trunks", scenery.trunks, [0.28, 0.16, 0.09], [0.025, 0.012, 0.006])]),
-          ...(scenery.buildingWalls.positions.length === 0
-            ? []
-            : [createLandscapeMesh(engine, "route-terrain-buildings", scenery.buildingWalls, [0.68, 0.59, 0.44], [0.06, 0.045, 0.026])]),
-          ...(scenery.buildingRoofs.positions.length === 0
-            ? []
-            : [createLandscapeMesh(engine, "route-terrain-roofs", scenery.buildingRoofs, [0.38, 0.18, 0.12], [0.045, 0.014, 0.009])]),
-        ];
-        landscapeMeshes.forEach((mesh) => {
-          addToScene(scene, mesh);
-          setMeshVisible(mesh, terrainVisible);
-        });
-        const previousLandscapeMeshes = activeLandscapeMeshes;
-        previousLandscapeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
-        activeLandscapeMeshes = landscapeMeshes;
-        activeMeshes = [
-          ...activeMeshes.filter((mesh) => !previousLandscapeMeshes.includes(mesh)),
-          ...landscapeMeshes,
-        ];
+        routeRenderer.setLandscape(terrain, scenery);
+        routeRenderer.setTerrainVisible(terrainVisible);
         rideRenderer?.setEnvironment(elevationData, features);
 
         const cameraUnchanged =
@@ -890,9 +731,9 @@ const initializeViewer = async (): Promise<void> => {
       }
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "WebGPU could not start.";
+    const message = error instanceof Error ? error.message : "WebGL could not start.";
     engineError.hidden = false;
-    engineError.textContent = `The 3D viewer could not start. Use a WebGPU-enabled browser, then reload. (${message})`;
+    engineError.textContent = `The 3D viewer could not start. Use a WebGL-enabled browser, then reload. (${message})`;
     setStatus("3D rendering is unavailable in this browser.", true);
   }
 };
