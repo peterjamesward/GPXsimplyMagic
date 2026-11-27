@@ -128,14 +128,14 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.12;
   const asphaltTexture = createAsphaltTexture(Math.min(renderer.capabilities.getMaxAnisotropy(), 8));
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#91bfd0");
   scene.fog = new THREE.Fog("#91bfd0", 70, 260);
   scene.add(new THREE.HemisphereLight("#e8f4f4", "#627258", 1.45));
-  const sun = new THREE.DirectionalLight("#fff1d2", 1.8);
+  const sun = new THREE.DirectionalLight("#fff1d2", 2.6);
   sun.position.set(-25, 45, -30);
   scene.add(sun);
 
