@@ -256,13 +256,14 @@ const parseElements = (elements: readonly RawElement[], geometry: TrackMeshData)
     seenElements.add(identity);
     const tags = element.tags ?? {};
     const category = getLandUseCategory(tags);
+    const isBuilding = (tags.building !== undefined && tags.building !== "no") || tags["building:part"] !== undefined;
     const rings = getElementRings(element);
-    if (category !== null) {
+    if (category !== null && !isBuilding) {
       rings.forEach((ring) => {
         areas.push(createArea(category, allowsTreeScenery(tags), Object.freeze(ring.map((point) => toScenePoint(point, geometry)))));
       });
     }
-    if ((tags.building !== undefined && tags.building !== "no") || tags["building:part"] !== undefined) {
+    if (isBuilding) {
       rings.forEach((ring) => {
         buildings.push(Object.freeze({
           points: Object.freeze(ring.map((point) => toScenePoint(point, geometry))),

@@ -16,7 +16,7 @@ const colorStops: readonly ColorStop[] = [
 
 const createMutableMeshPart = (): MutableMeshPart => ({ positions: [], normals: [], indices: [], colors: [] });
 
-const getGradientColor = (gradient: number): readonly [number, number, number] => {
+export const getGradientCurtainColor = (gradient: number): readonly [number, number, number] => {
   const clampedGradient = Math.max(colorStops[0].gradient, Math.min(colorStops[colorStops.length - 1].gradient, gradient));
   const exactStop = colorStops.find((stop) => stop.gradient === clampedGradient);
   if (exactStop !== undefined) {
@@ -93,7 +93,7 @@ export const createGradientCurtainMeshData = (geometry: TrackMeshData): Gradient
     const segmentDirection = subtract(vertices[1], vertices[0]);
     const normal = normalize(cross(segmentDirection, subtract(vertices[2], vertices[1])));
     const firstIndex = mesh.positions.length / 3;
-    const gradientColor = getGradientColor(start.gradientPercent ?? 0);
+    const gradientColor = getGradientCurtainColor(start.gradientPercent ?? 0);
 
     vertices.forEach((vertex) => {
       mesh.positions.push(vertex.x, vertex.y, vertex.z);

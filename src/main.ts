@@ -36,9 +36,11 @@ import {
 } from "./openStreetMap";
 import { createTrackPointRayIndex } from "./trackHover";
 import { createTrackHoverOverlay } from "./trackHoverOverlay";
-import { getTrackHoverTolerance } from "./trackHoverLayout";
+import { getTrackHoverLayout, getTrackHoverTolerance } from "./trackHoverLayout";
+import { createTrackHoverCard } from "./trackHoverCard";
 import { findNearestScreenPointIndex } from "./trackPointFocus";
 import { createGradientCurtainMeshData, type GradientCurtainMeshData } from "./gradientCurtain";
+import { createTrackProfileView } from "./trackProfileView";
 import { loadTerrainDem } from "./terrainDem";
 import { createTerrainMeshData } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
@@ -55,6 +57,7 @@ const terrainVisibilityToggle = document.querySelector<HTMLInputElement>("#show-
 const routeViewPanel = document.querySelector<HTMLElement>("#route-view-panel");
 const terrainViewPanel = document.querySelector<HTMLElement>("#terrain-view-panel");
 const mapContainer = document.querySelector<HTMLElement>("#map-canvas");
+const profileCanvas = document.querySelector<HTMLCanvasElement>("#profile-canvas");
 const mapError = document.querySelector<HTMLElement>("#map-error");
 const emptyState = document.querySelector<HTMLElement>("#empty-state");
 const statusMessage = document.querySelector<HTMLElement>("#status-message");
@@ -72,6 +75,7 @@ if (
   routeViewPanel === null ||
   terrainViewPanel === null ||
   mapContainer === null ||
+  profileCanvas === null ||
   mapError === null ||
   emptyState === null ||
   statusMessage === null ||
@@ -320,6 +324,34 @@ const initializeViewer = async (): Promise<void> => {
     attachRouteCameraControls(camera, canvas, scene);
     addToScene(scene, createHemisphericLight([0, 1, 0], 1));
     const hoverOverlay = createTrackHoverOverlay(engine, scene, camera, canvas);
+    const profileHoverCard = createTrackHoverCard(viewer);
+    const profileView = createTrackProfileView(profileCanvas, (hover) => {
+      if (hover === null) {
+        profileHoverCard.hide();
+        return;
+      }
+
+      hoverOverlay.hide();
+      const profileBounds = profileCanvas.getBoundingClientRect();
+      const viewerBounds = viewer.getBoundingClientRect();
+      const layout = getTrackHoverLayout(
+        {
+          x: profileBounds.left - viewerBounds.left + hover.position.x,
+          y: profileBounds.top - viewerBounds.top + hover.position.y,
+        },
+        { width: viewerBounds.width, height: viewerBounds.height },
+      );
+      if (layout === null) {
+        profileHoverCard.hide();
+        return;
+      }
+
+      profileHoverCard.setPoint(hover.point);
+      profileHoverCard.setLayout(layout, { x: 0, y: 0 });
+      profileHoverCard.show();
+    }, focusTrackPoint);
+    const profileResizeObserver = new ResizeObserver(() => profileView.refresh());
+    profileResizeObserver.observe(profileCanvas.parentElement ?? profileCanvas);
     canvas.addEventListener("dblclick", (event: MouseEvent) => {
       if (activeGeometry === null) {
         return;
@@ -346,6 +378,7 @@ const initializeViewer = async (): Promise<void> => {
       }
     });
     canvas.addEventListener("pointermove", (event: PointerEvent) => {
+      profileHoverCard.hide();
       hoverOverlay.updatePointer(event.clientX, event.clientY);
     });
     canvas.addEventListener("pointerleave", hoverOverlay.hide);
@@ -381,6 +414,7 @@ const initializeViewer = async (): Promise<void> => {
       activeTrackPoints = track.points;
       activeTrackLongitudes = getContinuousLongitudes(track.points);
       activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
+      profileView.setRoute(geometry.routePoints);
       terrainMap.setRoute(track.points);
       const gradientCurtain = createGradientCurtainMeshData(geometry);
       const cameraBounds = Object.freeze({

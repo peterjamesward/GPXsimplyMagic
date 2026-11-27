@@ -124,12 +124,16 @@ button, input { font: inherit; }
 .view-switch button { min-height: 31px; padding: 0 14px; border: 0; border-radius: 5px 5px 0 0; background: transparent; color: #82928b; font-size: 11px; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
 .view-switch button[aria-selected="true"] { background: #2a3935; color: var(--accent); }
 .view-switch button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.terrain-control { min-height: 34px; margin: 0 3px 7px 0; display: inline-flex; align-items: center; gap: 8px; color: #a7b6af; font-size: 11px; cursor: pointer; }
+.terrain-control { position: absolute; z-index: 4; top: 14px; right: 14px; min-height: 34px; margin: 0; padding: 0 11px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(191, 216, 206, 0.2); border-radius: 6px; background: rgba(21, 29, 32, 0.92); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2); color: #e8efeb; font-size: 11px; cursor: pointer; }
 .terrain-control input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .terrain-control[hidden] { display: none; }
-.views-composite { min-height: 0; display: grid; flex: 1; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.views-composite { position: relative; min-height: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+.primary-views { position: relative; min-width: 0; min-height: 0; display: grid; flex: 2; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .view-panel { min-width: 0; display: flex; flex-direction: column; grid-area: 1 / 1; }
 .view-panel[aria-hidden="true"] { visibility: hidden; pointer-events: none; }
+.profile-panel { position: relative; min-width: 0; min-height: 110px; flex: 1; overflow: hidden; border: 1px solid rgba(174, 206, 193, 0.12); border-top: 0; border-radius: 0 0 10px 10px; background: #202a2a; }
+#profile-canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; cursor: crosshair; touch-action: none; }
+#profile-canvas.is-panning { cursor: grabbing; }
 
 .viewer {
   position: relative;
@@ -137,7 +141,7 @@ button, input { font: inherit; }
   flex: 1;
   overflow: hidden;
   border: 1px solid rgba(174, 206, 193, 0.12);
-  border-radius: 0 10px 10px 10px;
+  border-radius: 0 10px 0 0;
   background-color: #9aa8a6;
   background-image: linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px), radial-gradient(ellipse at 50% 48%, rgba(215, 232, 224, 0.28), transparent 62%);
   background-size: 36px 36px, 36px 36px, auto;
@@ -205,7 +209,7 @@ button, input { font: inherit; }
   .workspace { height: calc(100vh - 64px); min-height: 420px; padding: 10px 12px 12px; }
   .viewer-toolbar { min-height: 33px; }
   .view-switch button { min-height: 29px; padding: 0 10px; font-size: 10px; }
-  .terrain-control { gap: 5px; margin-right: 1px; font-size: 9px; }
+  .terrain-control { top: 10px; right: 10px; gap: 5px; padding: 0 8px; font-size: 9px; }
   .viewer-footer { right: 11px; left: 11px; font-size: 6px; }
 }
 

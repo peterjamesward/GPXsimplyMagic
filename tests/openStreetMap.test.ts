@@ -108,13 +108,36 @@ describe("OpenStreetMap route features", () => {
     expect(Object.isFrozen(features)).toBe(true);
   });
 
+  it("does not treat a building footprint as a land-use area", () => {
+    const features = parseOpenStreetMapFeatures({
+      elements: [{
+        type: "way",
+        id: 10,
+        tags: { building: "yes", landuse: "residential" },
+        geometry: box(20),
+      }],
+    }, geometry);
+
+    expect(features.areas).toHaveLength(0);
+    expect(features.buildings).toHaveLength(1);
+  });
+
   it("joins outer relation members into polygons and uses building levels as a height fallback", () => {
     const ring = box(50);
     const features = parseOpenStreetMapFeatures({
       elements: [{
         type: "relation",
         id: 3,
-        tags: { type: "multipolygon", natural: "water", building: "yes", "building:levels": "4" },
+        tags: { type: "multipolygon", natural: "water" },
+        members: [
+          { role: "outer", geometry: ring.slice(0, 3) },
+          { role: "outer", geometry: ring.slice(2, 5) },
+          { role: "outer", geometry: [ring[4], ring[0]] },
+        ],
+      }, {
+        type: "relation",
+        id: 4,
+        tags: { type: "multipolygon", building: "yes", "building:levels": "4" },
         members: [
           { role: "outer", geometry: ring.slice(0, 3) },
           { role: "outer", geometry: ring.slice(2, 5) },

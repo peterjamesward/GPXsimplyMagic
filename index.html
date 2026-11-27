@@ -24,38 +24,43 @@
       <main class="workspace">
         <p id="status-message" class="visually-hidden" role="status" aria-live="polite">Ready when you are — open a GPX route.</p>
 
-        <section class="viewer-panel" aria-label="Synchronized route and terrain views">
+        <section class="viewer-panel" aria-label="Synchronized route, terrain, and elevation profile views">
           <div class="viewer-toolbar">
             <div class="view-switch" role="tablist" aria-label="Choose a view">
               <button id="show-route-view" type="button" role="tab" aria-controls="route-view-panel" aria-selected="true" tabindex="0">3D Route</button>
               <button id="show-map-view" type="button" role="tab" aria-controls="terrain-view-panel" aria-selected="false" tabindex="-1">Map + Terrain</button>
             </div>
-            <label id="terrain-control" class="terrain-control">
-              <input id="show-terrain" type="checkbox" role="switch" aria-label="Show procedural terrain" checked />
-              <span>Procedural terrain</span>
-            </label>
           </div>
           <div id="viewer" class="views-composite">
-            <section id="route-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-route-view" aria-label="Babylon 3D route view" aria-hidden="false">
-              <div id="route-view" class="viewer">
-                <canvas id="route-canvas" aria-label="Interactive 3D cycling route with terrain, trees, and buildings"></canvas>
-                <div id="engine-error" class="engine-error" hidden></div>
-                <a class="data-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Map data © OpenStreetMap contributors</a>
-                <div id="empty-state" class="empty-state">
-                  <div class="empty-orbit" aria-hidden="true"><span>↗</span></div>
-                  <h2>Your next ride, in a new perspective.</h2>
-                  <p>Drop a GPX file here or choose one to see your route take shape.</p>
-                  <label class="empty-button" for="gpx-file">Choose a GPX file <span aria-hidden="true">→</span></label>
-                  <span class="file-hint">GPX files · Stored locally in your browser</span>
+            <div class="primary-views">
+              <section id="route-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-route-view" aria-label="Babylon 3D route view" aria-hidden="false">
+                <div id="route-view" class="viewer">
+                  <canvas id="route-canvas" aria-label="Interactive 3D cycling route with terrain, trees, and buildings"></canvas>
+                  <label id="terrain-control" class="terrain-control">
+                    <input id="show-terrain" type="checkbox" role="switch" aria-label="Show procedural terrain" checked />
+                    <span>Procedural terrain</span>
+                  </label>
+                  <div id="engine-error" class="engine-error" hidden></div>
+                  <a class="data-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Map data © OpenStreetMap contributors</a>
+                  <div id="empty-state" class="empty-state">
+                    <div class="empty-orbit" aria-hidden="true"><span>↗</span></div>
+                    <h2>Your next ride, in a new perspective.</h2>
+                    <p>Drop a GPX file here or choose one to see your route take shape.</p>
+                    <label class="empty-button" for="gpx-file">Choose a GPX file <span aria-hidden="true">→</span></label>
+                    <span class="file-hint">GPX files · Stored locally in your browser</span>
+                  </div>
+                  <div class="viewer-footer"><span>DRAG TO PAN</span><span>CTRL-DRAG TO ORBIT</span><span>SCROLL TO ZOOM</span></div>
                 </div>
-                <div class="viewer-footer"><span>DRAG TO PAN</span><span>CTRL-DRAG TO ORBIT</span><span>SCROLL TO ZOOM</span></div>
-              </div>
-            </section>
-            <section id="terrain-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-map-view" aria-label="MapLibre terrain view" aria-hidden="true" inert>
-              <div id="map-view" class="viewer">
-                <div id="map-canvas" aria-label="Interactive terrain map synchronized with the route"></div>
-                <div id="map-error" class="engine-error map-error" role="status" hidden>Map tiles could not be loaded. Check your internet connection.</div>
-              </div>
+              </section>
+              <section id="terrain-view-panel" class="view-panel" role="tabpanel" aria-labelledby="show-map-view" aria-label="MapLibre terrain view" aria-hidden="true" inert>
+                <div id="map-view" class="viewer">
+                  <div id="map-canvas" aria-label="Interactive terrain map synchronized with the route"></div>
+                  <div id="map-error" class="engine-error map-error" role="status" hidden>Map tiles could not be loaded. Check your internet connection.</div>
+                </div>
+              </section>
+            </div>
+            <section class="profile-panel" aria-label="Elevation profile: altitude against distance">
+              <canvas id="profile-canvas" aria-label="Interactive route elevation profile. Hover for point details, double-click a point to center the route views, scroll to zoom, and drag to pan."></canvas>
             </section>
           </div>
         </section>

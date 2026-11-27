@@ -1,11 +1,17 @@
 # TODO
 
-- [ ] Tidy up the graphical user interface.
-- [x] Render a GPX-conformed terrain landscape in Babylon with foliage and buildings.
 - [ ] Investigate whether suitable LIDAR data is available for terrain rendering.
 - [ ] Display elevation differences between the GPX route, map elevation, and LIDAR data.
-- [ ] Detect sections where the GPX route does not follow a road shown on the map.
-- [x] Investigate possible optimisations for track searching.
-- [x] Use OpenStreetMap land-use polygons to style procedural terrain and mapped building footprints/heights/colours where available.
-- [x] Show a gradient curtain when procedural terrain is hidden.
 - [ ] Replace the box-shaped road; the road no longer needs to be a box.
+- [ ] Processing pipeline options: (? new lhs panel)
+  - [ ] Remove anomalous points
+  - [ ] Conform to road
+  - [ ] Apply minimum turn radius
+  - [ ] Use original, map or LIDAR altitude (with interpolation)
+  - [ ] Apply gradient smoothing.
+
+# Questions
+
+- Is terrain loading eager or lazy?
+- Can loops be replaced with more functional forms?
+- Can we profile and optimise?
