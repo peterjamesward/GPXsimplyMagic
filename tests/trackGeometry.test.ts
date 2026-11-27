@@ -23,10 +23,9 @@ describe("createTrackMeshData", () => {
     expect(Object.isFrozen(geometry.positions)).toBe(true);
   });
 
-  it("includes the full road slab in its bounds", () => {
+  it("includes the road surface in its bounds", () => {
     const geometry = createTrackMeshData(samplePoints);
-    const parts = [geometry, geometry.topSurface, geometry.leftSide, geometry.rightSide];
-    const coordinates = parts.flatMap((part) => part.positions);
+    const coordinates = geometry.topSurface.positions;
     const xCoordinates = coordinates.filter((_value, index) => index % 3 === 0);
     const yCoordinates = coordinates.filter((_value, index) => index % 3 === 1);
     const zCoordinates = coordinates.filter((_value, index) => index % 3 === 2);
@@ -40,18 +39,21 @@ describe("createTrackMeshData", () => {
     expect(Object.isFrozen(geometry.bounds)).toBe(true);
   });
 
-  it("creates a four-meter-wide road with a one-meter-deep underside", () => {
+  it("creates a six-meter-wide single-layer road with an upward-facing tarmac surface", () => {
     const points: readonly TrackPoint[] = [
       { latitude: 0, longitude: 0, elevationMeters: 100 },
       { latitude: 0.001, longitude: 0, elevationMeters: 100 },
     ];
     const geometry = createTrackMeshData(points);
-    const xCoordinates = geometry.positions.filter((_value, index) => index % 3 === 0);
-    const yCoordinates = geometry.positions.filter((_value, index) => index % 3 === 1);
+    const xCoordinates = geometry.topSurface.positions.filter((_value, index) => index % 3 === 0);
+    const yCoordinates = geometry.topSurface.positions.filter((_value, index) => index % 3 === 1);
     const expectedScale = 12 / 111.32;
 
-    expect(Math.max(...xCoordinates) - Math.min(...xCoordinates)).toBeCloseTo(4 * expectedScale, 5);
-    expect(Math.max(...yCoordinates) - Math.min(...yCoordinates)).toBeCloseTo(2 * expectedScale, 5);
+    expect(Math.max(...xCoordinates) - Math.min(...xCoordinates)).toBeCloseTo(6 * expectedScale, 5);
+    expect(Math.max(...yCoordinates) - Math.min(...yCoordinates)).toBeCloseTo(0, 5);
+    expect(geometry.positions).toEqual(geometry.topSurface.positions);
+    expect(geometry.topSurface.normals.filter((_value, index) => index % 3 === 1).every((normalY) => normalY > 0)).toBe(true);
+    expect(geometry.topSurface.uvs).toHaveLength((geometry.topSurface.positions.length / 3) * 2);
   });
 
   it("maps increasing longitude east and increasing latitude north", () => {
@@ -72,35 +74,18 @@ describe("createTrackMeshData", () => {
     expect(northEndZ).toBeGreaterThan(northStartZ);
   });
 
-  it("keeps the tarmac surface above the underside of each road section", () => {
+  it("keeps each uphill road surface at route altitude across the full width", () => {
     const points: readonly TrackPoint[] = [
       { latitude: 0, longitude: 0, elevationMeters: 100 },
       { latitude: 0.001, longitude: 0, elevationMeters: 100.1 },
     ];
     const geometry = createTrackMeshData(points);
     const surfaceYs = geometry.topSurface.positions.filter((_value, index) => index % 3 === 1);
-    const undersideYs = geometry.positions.slice(0, 12).filter((_value, index) => index % 3 === 1);
     const surfaceNormalYs = geometry.topSurface.normals.filter((_value, index) => index % 3 === 1);
 
-    expect(Math.min(...surfaceYs)).toBeGreaterThan(Math.max(...undersideYs));
+    expect(Math.min(...surfaceYs)).toBeCloseTo(geometry.routePoints[0].y, 10);
+    expect(Math.max(...surfaceYs)).toBeCloseTo(geometry.routePoints[1].y, 10);
     expect(surfaceNormalYs.every((normalY) => normalY > 0)).toBe(true);
-  });
-
-  it("keeps the left and right outer sides in separate geometry", () => {
-    const points: readonly TrackPoint[] = [
-      { latitude: 0, longitude: 0, elevationMeters: 0 },
-      { latitude: 0.001, longitude: 0, elevationMeters: 0 },
-    ];
-    const geometry = createTrackMeshData(points);
-    const leftXCoordinates = geometry.leftSide.positions.filter((_value, index) => index % 3 === 0);
-    const rightXCoordinates = geometry.rightSide.positions.filter((_value, index) => index % 3 === 0);
-
-    expect(leftXCoordinates.length).toBeGreaterThan(0);
-    expect(rightXCoordinates.length).toBeGreaterThan(0);
-    expect(Math.max(...leftXCoordinates)).toBeLessThan(0);
-    expect(Math.min(...rightXCoordinates)).toBeGreaterThan(0);
-    expect(geometry.leftSide.normals.filter((_value, index) => index % 3 === 0).every((normalX) => normalX < 0)).toBe(true);
-    expect(geometry.rightSide.normals.filter((_value, index) => index % 3 === 0).every((normalX) => normalX > 0)).toBe(true);
   });
 
   it("keeps each uphill segment's cross-road edges horizontal through bends", () => {

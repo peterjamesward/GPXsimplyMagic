@@ -94,11 +94,11 @@ describe("terrain geometry", () => {
     expect(decodeTerrariumElevation(127, 255, 255)).toBeCloseTo(-0.00390625);
   });
 
-  it("keeps terrain below the road while matching the GPX route profile", () => {
+  it("keeps terrain just below the single-layer road while matching the GPX route profile", () => {
     const geometry = createTrackMeshData(points);
     const sampleHeight = createTerrainHeightSampler(geometry, () => 800);
     const [start, middle, end] = geometry.routePoints;
-    const roadClearance = 2.1 * geometry.projection.sceneUnitsPerMeter;
+    const roadClearance = 0.03 * geometry.projection.sceneUnitsPerMeter;
 
     expect(sampleHeight(start.x, start.z)).toBeCloseTo(start.y - roadClearance, 8);
     expect(sampleHeight(middle.x, middle.z)).toBeCloseTo(middle.y - roadClearance, 8);
@@ -128,7 +128,7 @@ describe("terrain geometry", () => {
     expect(chunk.bounds.minX).toBeCloseTo(routePoint.x - margin);
     expect(chunk.bounds.maxZ).toBeCloseTo(routePoint.z + margin);
     expect(chunk.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(
-      routePoint.y - 2.1 * geometry.projection.sceneUnitsPerMeter,
+      routePoint.y - 0.03 * geometry.projection.sceneUnitsPerMeter,
       8,
     );
     expect(chunk.positions.length).toBe(chunk.normals.length);
@@ -149,11 +149,11 @@ describe("terrain geometry", () => {
     const coarse = createTerrainChunkMeshData(geometry, () => 800, bounds, 9, undefined, safetyDiagonalMeters);
     const fine = createTerrainChunkMeshData(geometry, () => 800, bounds, 33, undefined, safetyDiagonalMeters);
 
-    expect(coarse.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(routePoint.y - 2.1 * geometry.projection.sceneUnitsPerMeter, 8);
+    expect(coarse.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(routePoint.y - 0.03 * geometry.projection.sceneUnitsPerMeter, 8);
     expect(fine.sampleHeightAt(routePoint.x, routePoint.z)).toBeCloseTo(coarse.sampleHeightAt(routePoint.x, routePoint.z), 8);
   });
 
-  it("keeps coarse terrain below the road underside across the road width", () => {
+  it("keeps coarse terrain just below the road surface across its width", () => {
     const geometry = createTrackMeshData([
       { latitude: 0, longitude: 0, elevationMeters: 100 },
       { latitude: 0, longitude: 0.004, elevationMeters: 100 },
@@ -162,9 +162,9 @@ describe("terrain geometry", () => {
     const roadCenterX = (geometry.routePoints[0].x + geometry.routePoints[1].x) / 2;
     const roadCenterZ = (geometry.routePoints[0].z + geometry.routePoints[1].z) / 2;
     const withinRoadZ = roadCenterZ + geometry.roadHalfWidth / 2;
-    const roadBottomY = geometry.routePoints[0].y - 2 * geometry.projection.sceneUnitsPerMeter;
+    const roadSurfaceY = geometry.routePoints[0].y - 0.03 * geometry.projection.sceneUnitsPerMeter;
 
-    expect(terrain.sampleHeightAt(roadCenterX, withinRoadZ)).toBeLessThan(roadBottomY);
+    expect(terrain.sampleHeightAt(roadCenterX, withinRoadZ)).toBeLessThanOrEqual(roadSurfaceY);
   });
 
   it("keeps the complete lower road segment clear when route sections pass close together", () => {
@@ -176,15 +176,15 @@ describe("terrain geometry", () => {
     ]);
     const terrain = createTerrainMeshData(geometry, () => 900, 9);
     const [start, end] = geometry.routePoints;
-    const roadDepth = 2 * geometry.projection.sceneUnitsPerMeter;
+    const roadClearance = 0.03 * geometry.projection.sceneUnitsPerMeter;
 
     for (let step = 1; step < 20; step += 1) {
       const progress = step / 20;
       const x = start.x + (end.x - start.x) * progress;
       const z = start.z + (end.z - start.z) * progress;
-      const roadBottom = start.y + (end.y - start.y) * progress - roadDepth;
+      const roadSurface = start.y + (end.y - start.y) * progress - roadClearance;
 
-      expect(terrain.sampleHeightAt(x, z)).toBeLessThan(roadBottom);
+      expect(terrain.sampleHeightAt(x, z)).toBeLessThanOrEqual(roadSurface + 1e-10);
     }
   });
 

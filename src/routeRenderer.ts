@@ -23,6 +23,9 @@ const createGeometry = (part: TrackMeshPart): THREE.BufferGeometry => {
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(part.positions, 3));
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(part.normals, 3));
   geometry.setIndex(part.indices as number[]);
+  if (part.uvs !== undefined) {
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(part.uvs, 2));
+  }
   if (part.colors !== undefined) {
     const vertexCount = part.positions.length / 3;
     const colors = new Float32Array(vertexCount * 3);
@@ -48,13 +51,16 @@ const createMesh = (
     transparent?: boolean;
     depthWrite?: boolean;
     roughness?: number;
+    map?: THREE.Texture;
+    side?: THREE.Side;
   }> = {},
 ): THREE.Mesh => {
   const material = new THREE.MeshStandardMaterial({
     color,
+    map: options.map,
     emissive: options.emissive ?? "#000000",
     roughness: options.roughness ?? 0.9,
-    side: THREE.DoubleSide,
+    side: options.side ?? THREE.DoubleSide,
     vertexColors: options.vertexColors ?? part.colors !== undefined,
     opacity: options.opacity ?? 1,
     transparent: options.transparent ?? false,
@@ -64,6 +70,41 @@ const createMesh = (
   mesh.name = name;
   mesh.frustumCulled = true;
   return mesh;
+};
+
+const createAsphaltTexture = (anisotropy: number): THREE.CanvasTexture => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    throw new Error("Unable to create the road surface texture.");
+  }
+
+  context.fillStyle = "#414547";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  let state = 0x33a57;
+  const random = (): number => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+  for (let index = 0; index < 7_000; index += 1) {
+    const radius = 0.3 + random() * 1.5;
+    context.beginPath();
+    context.arc(random() * 512, random() * 512, radius, 0, Math.PI * 2);
+    context.fillStyle = random() > 0.5 ? "rgba(220, 224, 221, 0.18)" : "rgba(8, 11, 12, 0.2)";
+    context.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = anisotropy;
+  return texture;
 };
 
 const disposeGroup = (group: THREE.Group | null): void => {
@@ -88,6 +129,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  const asphaltTexture = createAsphaltTexture(Math.min(renderer.capabilities.getMaxAnisotropy(), 8));
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#91bfd0");
@@ -158,10 +200,12 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
     disposeGroup(routeGroup);
     routeGroup = new THREE.Group();
     routeGroup.name = "gpx-route";
-    routeGroup.add(createMesh(geometry, "gpx-road", "#292d30", { emissive: "#090a0b", roughness: 0.98 }));
-    routeGroup.add(createMesh(geometry.leftSide, "gpx-road-left", "#15ad37", { emissive: "#04250b" }));
-    routeGroup.add(createMesh(geometry.rightSide, "gpx-road-right", "#c81410", { emissive: "#300302" }));
-    routeGroup.add(createMesh(geometry.topSurface, "gpx-road-surface", "#292d30", { emissive: "#090a0b", roughness: 0.98 }));
+    routeGroup.add(createMesh(geometry.topSurface, "gpx-road-surface", "#ffffff", {
+      map: asphaltTexture,
+      emissive: "#080a0b",
+      roughness: 0.98,
+      side: THREE.FrontSide,
+    }));
     if (roadMarkings.indices.length > 0) {
       routeGroup.add(createMesh(roadMarkings, "gpx-road-markings", "#ffffff", { emissive: "#f4f1dc", roughness: 0.7 }));
     }
@@ -274,6 +318,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
         disposeMaterial(curtainMesh.material);
       }
       stylizedAssets?.dispose();
+      asphaltTexture.dispose();
       renderer.dispose();
     },
   });

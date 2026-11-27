@@ -4,6 +4,7 @@ export type TrackMeshPart = Readonly<{
   positions: readonly number[];
   normals: readonly number[];
   indices: readonly number[];
+  uvs?: readonly number[];
   colors?: readonly number[];
 }>;
 
@@ -36,14 +37,12 @@ export type TrackMeshData = TrackMeshPart & Readonly<{
   roadHalfWidth: number;
   routePoints: readonly TrackRoutePoint[];
   topSurface: TrackMeshPart;
-  leftSide: TrackMeshPart;
-  rightSide: TrackMeshPart;
 }>;
 
 type Point3 = Readonly<{ x: number; y: number; z: number }>;
-type MutableTrackMeshPart = { positions: number[]; normals: number[]; indices: number[] };
+type MutableTrackMeshPart = { positions: number[]; normals: number[]; indices: number[]; uvs: number[] };
 
-const createMutableMeshPart = (): MutableTrackMeshPart => ({ positions: [], normals: [], indices: [] });
+const createMutableMeshPart = (): MutableTrackMeshPart => ({ positions: [], normals: [], indices: [], uvs: [] });
 
 export const getContinuousLongitudes = (points: readonly TrackPoint[]): readonly number[] => {
   const longitudes = new Array<number>(points.length);
@@ -63,6 +62,7 @@ const freezeMeshPart = (part: MutableTrackMeshPart): TrackMeshPart => Object.fre
   positions: Object.freeze(part.positions),
   normals: Object.freeze(part.normals),
   indices: Object.freeze(part.indices),
+  ...(part.uvs.length === 0 ? {} : { uvs: Object.freeze(part.uvs) }),
 });
 
 const normalize = (point: Point3): Point3 => {
@@ -83,13 +83,6 @@ const subtract = (left: Point3, right: Point3): Point3 => ({
 });
 
 const dot = (left: Point3, right: Point3): number => left.x * right.x + left.y * right.y + left.z * right.z;
-
-type RoadSection = Readonly<{
-  leftTop: Point3;
-  rightTop: Point3;
-  leftBottom: Point3;
-  rightBottom: Point3;
-}>;
 
 export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshData => {
   if (points.length < 2) {
@@ -159,28 +152,25 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     })];
   }, []);
 
-  const halfWidth = 2 * scale;
-  const depth = 2 * scale;
-  const asphalt = createMutableMeshPart();
+  const halfWidth = 3 * scale;
   const topSurface = createMutableMeshPart();
-  const leftSide = createMutableMeshPart();
-  const rightSide = createMutableMeshPart();
 
   const appendQuad = (
     part: MutableTrackMeshPart,
     vertices: readonly [Point3, Point3, Point3, Point3],
     expectedNormal: Point3,
+    textureCoordinates: readonly (readonly [number, number])[],
   ): void => {
     const initialNormal = normalize(cross(subtract(vertices[1], vertices[0]), subtract(vertices[2], vertices[0])));
-    const orientedVertices = dot(initialNormal, expectedNormal) < 0
-      ? [vertices[0], vertices[3], vertices[2], vertices[1]] as const
-      : vertices;
+    const vertexOrder = dot(initialNormal, expectedNormal) < 0 ? [0, 3, 2, 1] : [0, 1, 2, 3];
+    const orientedVertices = vertexOrder.map((vertexIndex) => vertices[vertexIndex]);
     const normal = normalize(cross(subtract(orientedVertices[1], orientedVertices[0]), subtract(orientedVertices[2], orientedVertices[0])));
     const firstIndex = part.positions.length / 3;
 
-    orientedVertices.forEach((vertex) => {
+    orientedVertices.forEach((vertex, index) => {
       part.positions.push(vertex.x, vertex.y, vertex.z);
       part.normals.push(normal.x, normal.y, normal.z);
+      part.uvs.push(...textureCoordinates[vertexOrder[index]]);
     });
     part.indices.push(firstIndex, firstIndex + 1, firstIndex + 2, firstIndex, firstIndex + 2, firstIndex + 3);
   };
@@ -193,35 +183,29 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     const side = horizontalLength === 0
       ? { x: 1, y: 0, z: 0 }
       : { x: -direction.z / horizontalLength, y: 0, z: direction.x / horizontalLength };
-    const createSection = (point: Point3): RoadSection => {
-      const leftTop = {
+    const createSection = (point: Point3): Readonly<{ left: Point3; right: Point3 }> => ({
+      left: {
         x: point.x + side.x * halfWidth,
         y: point.y,
         z: point.z + side.z * halfWidth,
-      };
-      const rightTop = {
+      },
+      right: {
         x: point.x - side.x * halfWidth,
         y: point.y,
         z: point.z - side.z * halfWidth,
-      };
-
-      return {
-        leftTop,
-        rightTop,
-        leftBottom: { ...leftTop, y: leftTop.y - depth },
-        rightBottom: { ...rightTop, y: rightTop.y - depth },
-      };
-    };
+      },
+    });
 
     const start = createSection(startPoint);
     const end = createSection(endPoint);
-
-    appendQuad(topSurface, [start.leftTop, end.leftTop, end.rightTop, start.rightTop], { x: 0, y: 1, z: 0 });
-    appendQuad(asphalt, [start.leftBottom, start.rightBottom, end.rightBottom, end.leftBottom], { x: 0, y: -1, z: 0 });
-    appendQuad(leftSide, [start.leftTop, end.leftTop, end.leftBottom, start.leftBottom], side);
-    appendQuad(rightSide, [start.rightTop, start.rightBottom, end.rightBottom, end.rightTop], { x: -side.x, y: -side.y, z: -side.z });
-    appendQuad(asphalt, [start.leftTop, start.rightTop, start.rightBottom, start.leftBottom], { x: -direction.x, y: -direction.y, z: -direction.z });
-    appendQuad(asphalt, [end.leftTop, end.leftBottom, end.rightBottom, end.rightTop], direction);
+    const startDistance = routePoints[index].distanceMeters / 2;
+    const endDistance = routePoints[index + 1].distanceMeters / 2;
+    appendQuad(
+      topSurface,
+      [start.left, end.left, end.right, start.right],
+      { x: 0, y: 1, z: 0 },
+      [[startDistance, 0], [endDistance, 0], [endDistance, 3], [startDistance, 3]],
+    );
   }
 
   const meshBounds = {
@@ -232,25 +216,23 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     minZ: Number.POSITIVE_INFINITY,
     maxZ: Number.NEGATIVE_INFINITY,
   };
-  [asphalt, topSurface, leftSide, rightSide].forEach((part) => {
-    for (let index = 0; index < part.positions.length; index += 3) {
-      meshBounds.minX = Math.min(meshBounds.minX, part.positions[index]);
-      meshBounds.maxX = Math.max(meshBounds.maxX, part.positions[index]);
-      meshBounds.minY = Math.min(meshBounds.minY, part.positions[index + 1]);
-      meshBounds.maxY = Math.max(meshBounds.maxY, part.positions[index + 1]);
-      meshBounds.minZ = Math.min(meshBounds.minZ, part.positions[index + 2]);
-      meshBounds.maxZ = Math.max(meshBounds.maxZ, part.positions[index + 2]);
-    }
-  });
+  for (let index = 0; index < topSurface.positions.length; index += 3) {
+    meshBounds.minX = Math.min(meshBounds.minX, topSurface.positions[index]);
+    meshBounds.maxX = Math.max(meshBounds.maxX, topSurface.positions[index]);
+    meshBounds.minY = Math.min(meshBounds.minY, topSurface.positions[index + 1]);
+    meshBounds.maxY = Math.max(meshBounds.maxY, topSurface.positions[index + 1]);
+    meshBounds.minZ = Math.min(meshBounds.minZ, topSurface.positions[index + 2]);
+    meshBounds.maxZ = Math.max(meshBounds.maxZ, topSurface.positions[index + 2]);
+  }
+
+  const frozenTopSurface = freezeMeshPart(topSurface);
 
   return Object.freeze({
-    ...freezeMeshPart(asphalt),
+    ...frozenTopSurface,
     bounds: Object.freeze(meshBounds),
     projection,
     roadHalfWidth: halfWidth,
     routePoints: Object.freeze(routePoints),
-    topSurface: freezeMeshPart(topSurface),
-    leftSide: freezeMeshPart(leftSide),
-    rightSide: freezeMeshPart(rightSide),
+    topSurface: frozenTopSurface,
   });
 };

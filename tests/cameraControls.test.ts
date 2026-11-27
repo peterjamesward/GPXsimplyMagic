@@ -13,6 +13,7 @@ import {
   isPrimaryDragPan,
   panCameraToPointerAnchor,
   setOrbitTargetPreservingView,
+  updateRouteCamera,
   zoomCameraAtPointer,
 } from "../src/cameraControls";
 
@@ -21,6 +22,17 @@ const createCanvas = (left = 100, top = 50, width = 800, height = 600): HTMLCanv
 } as HTMLCanvasElement);
 
 describe("route camera controls", () => {
+  it("keeps the depth range tight enough to distinguish the road from terrain", () => {
+    const camera = createRouteCamera();
+    camera.radius = 20;
+
+    updateRouteCamera(camera);
+
+    expect(camera.renderCamera.near).toBeGreaterThanOrEqual(0.2);
+    expect(camera.renderCamera.far).toBeLessThanOrEqual(1_000);
+    expect(camera.renderCamera.far / camera.renderCamera.near).toBeLessThan(10_000);
+  });
+
   it("centers on a track point and clears pending camera motion", () => {
     const camera = createRouteCamera();
     camera.inertialAlphaOffset = 1;

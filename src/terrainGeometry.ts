@@ -62,7 +62,7 @@ export const createTerrainHeightSampler = (
     const terrainAnchorDistanceMeters = Math.max(0, distanceMeters - geometry.roadHalfWidth / sceneUnitsPerMeter);
     const influence = Math.exp(-((terrainAnchorDistanceMeters / 90) ** 2));
     const terrainHeight = uncorrectedY + routeCorrection * influence;
-    const roadBottomY = (lowestNearbyRouteHeight ?? constraint.y) - 2.1 * sceneUnitsPerMeter;
+    const roadBottomY = (lowestNearbyRouteHeight ?? constraint.y) - 0.03 * sceneUnitsPerMeter;
 
     if (lowestNearbyRouteHeight !== null) {
       return Math.min(terrainHeight, roadBottomY);

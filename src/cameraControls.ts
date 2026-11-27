@@ -22,9 +22,11 @@ export type RoutePointPicker = (ray: TrackRay) => Point3 | null;
 
 const minimumCameraRadius = 0.01;
 const maximumCameraRadius = 1_000_000;
+const minimumCameraNearPlane = 0.0001;
+const minimumCameraFarPlane = 1_000;
 
 export const createRouteCamera = (): RouteCamera => ({
-  renderCamera: new THREE.PerspectiveCamera(45, 1, 0.0001, 1_000_000),
+  renderCamera: new THREE.PerspectiveCamera(45, 1, minimumCameraNearPlane, minimumCameraFarPlane),
   target: new THREE.Vector3(0, 0, 0),
   alpha: -Math.PI / 2,
   beta: 1.08,
@@ -41,6 +43,8 @@ export const updateRouteCamera = (camera: RouteCamera, width?: number, height?: 
   if (width !== undefined && height !== undefined && width > 0 && height > 0) {
     camera.renderCamera.aspect = width / height;
   }
+  camera.renderCamera.near = Math.max(minimumCameraNearPlane, camera.radius * 0.02);
+  camera.renderCamera.far = Math.max(minimumCameraFarPlane, camera.radius * 8);
   camera.renderCamera.fov = (camera.fov * 180) / Math.PI;
   camera.renderCamera.position.set(
     camera.target.x + camera.radius * Math.sin(camera.beta) * Math.cos(camera.alpha),
