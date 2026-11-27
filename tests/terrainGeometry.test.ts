@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createTrackMeshData } from "../src/trackGeometry";
-import { decodeTerrariumElevation } from "../src/terrainDem";
+import {
+  decodeTerrariumElevation,
+  getTerrainDemZoom,
+  getTerrainTileCoverage,
+  retainBestTerrainElevation,
+  type TerrainDemData,
+} from "../src/terrainDem";
 import { createTerrainHeightSampler, createTerrainMeshData } from "../src/terrainGeometry";
 import { createTerrainScenery } from "../src/terrainScenery";
 import type { TrackPoint } from "../src/gpx";
@@ -12,6 +18,76 @@ const points: readonly TrackPoint[] = [
 ];
 
 describe("terrain geometry", () => {
+  it("maps camera zoom to a bounded integer DEM level", () => {
+    expect(getTerrainDemZoom(8.9)).toBe(8);
+    expect(getTerrainDemZoom(-3)).toBe(0);
+    expect(getTerrainDemZoom(18)).toBe(15);
+    expect(getTerrainDemZoom(Number.NaN)).toBeNull();
+  });
+
+  it("limits requested terrain coverage to 64 tiles without exceeding the requested zoom", () => {
+    const geometry = createTrackMeshData([
+      { latitude: 0, longitude: 0, elevationMeters: 100 },
+      { latitude: 0, longitude: 5, elevationMeters: 100 },
+    ]);
+    const coverage = getTerrainTileCoverage(geometry, 15);
+    const tileCount = (coverage.maxX - coverage.minX + 1) * (coverage.maxY - coverage.minY + 1);
+
+    expect(coverage.zoom).toBeLessThan(15);
+    expect(tileCount).toBeLessThanOrEqual(64);
+    expect(getTerrainTileCoverage(geometry, 4).zoom).toBeLessThanOrEqual(4);
+  });
+
+  it("loads high-resolution coverage around the camera instead of an entire long route", () => {
+    const geometry = createTrackMeshData([
+      { latitude: 0, longitude: 0, elevationMeters: 100 },
+      { latitude: 0, longitude: 5, elevationMeters: 100 },
+    ]);
+    const view = { center: [2.5, 0] as const, zoom: 15, width: 400, height: 300, pitch: 0 };
+    const coverage = getTerrainTileCoverage(geometry, 15, view);
+    const shiftedCoverage = getTerrainTileCoverage(geometry, 15, { ...view, center: [2.8, 0] });
+    const tileCount = (coverage.maxX - coverage.minX + 1) * (coverage.maxY - coverage.minY + 1);
+
+    expect(coverage.zoom).toBe(15);
+    expect(tileCount).toBeLessThanOrEqual(64);
+    expect(shiftedCoverage.minX).not.toBe(coverage.minX);
+
+    const zoomedOutCoverage = getTerrainTileCoverage(geometry, 0, {
+      center: [0, 0],
+      zoom: -2,
+      width: 800,
+      height: 600,
+      pitch: 85,
+    });
+    expect(zoomedOutCoverage.zoom).toBe(0);
+  });
+
+  it("prefers higher-resolution elevations and falls back where those tiles have gaps", () => {
+    const coarse = Object.freeze({ zoom: 6, elevationAt: () => 1200 });
+    const fine = Object.freeze({ zoom: 8, elevationAt: (latitude: number) => latitude > 0 ? 1250 : null });
+    const best = retainBestTerrainElevation(coarse, fine);
+    const nearbyFine = Object.freeze({ zoom: 8, elevationAt: (latitude: number) => latitude < 0 ? 1300 : null });
+    const merged = retainBestTerrainElevation(best, nearbyFine);
+
+    expect(merged.zoom).toBe(8);
+    expect(merged.elevationAt(1, 0)).toBe(1250);
+    expect(merged.elevationAt(-1, 0)).toBe(1300);
+    expect(merged.elevationAt(0, 0)).toBe(1200);
+    expect(retainBestTerrainElevation(merged, coarse)).toBe(merged);
+  });
+
+  it("bounds retained elevation layers while keeping the newest patch preferred", () => {
+    const patches: readonly TerrainDemData[] = Array.from({ length: 10 }, (_value, index) =>
+      Object.freeze({ zoom: 8, elevationAt: () => index }));
+    const merged = patches.reduce<TerrainDemData | null>(
+      (current, patch) => retainBestTerrainElevation(current, patch),
+      null,
+    );
+
+    expect(merged?.layers).toHaveLength(4);
+    expect(merged?.elevationAt(0, 0)).toBe(9);
+  });
+
   it("decodes Terrarium RGB pixels to elevation metres", () => {
     expect(decodeTerrariumElevation(128, 0, 0)).toBe(0);
     expect(decodeTerrariumElevation(128, 0, 128)).toBeCloseTo(0.5);

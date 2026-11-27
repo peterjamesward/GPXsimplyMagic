@@ -9,9 +9,9 @@
   - [ ] Apply minimum turn radius
   - [ ] Use original, map or LIDAR altitude (with interpolation)
   - [ ] Apply gradient smoothing.
+- [ ] Can I have lush first-person view with great shaders?
 
 # Questions
 
-- Is terrain loading eager or lazy?
 - Can loops be replaced with more functional forms?
 - Can we profile and optimise?

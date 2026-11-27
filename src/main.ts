@@ -47,8 +47,14 @@ import { createTrackHoverCard } from "./trackHoverCard";
 import { findNearestScreenPointIndex } from "./trackPointFocus";
 import { createGradientCurtainMeshData, type GradientCurtainMeshData } from "./gradientCurtain";
 import { createTrackProfileView } from "./trackProfileView";
-import { loadTerrainDem } from "./terrainDem";
-import { createTerrainMeshData } from "./terrainGeometry";
+import {
+  createTerrainDemLoader,
+  getTerrainTileCoverage,
+  retainBestTerrainElevation,
+  type TerrainDemData,
+  type TerrainView,
+} from "./terrainDem";
+import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
@@ -226,6 +232,7 @@ const initializeViewer = async (): Promise<void> => {
     let activeTrackLongitudes: readonly number[] = [];
     let activeTrackPointRayIndex = createTrackPointRayIndex([]);
     let syncingMapFromRoute = false;
+    let updateTerrainForZoom = (): void => {};
     let profileView: ReturnType<typeof createTrackProfileView> | null = null;
 
     const focusTrackPoint = (index: number, metersPerPixel?: number): void => {
@@ -343,6 +350,7 @@ const initializeViewer = async (): Promise<void> => {
         }
       }
 
+      updateTerrainForZoom();
       requestAnimationFrame(syncMapFromRoute);
     };
     requestAnimationFrame(syncMapFromRoute);
@@ -427,6 +435,13 @@ const initializeViewer = async (): Promise<void> => {
     let terrainVisible = terrainVisibilityToggle.checked;
     let terrainRequestId = 0;
     let terrainRequestController: AbortController | null = null;
+    let activeTerrainLoader: ((mapZoom: number, view?: TerrainView) => Promise<TerrainDemData>) | null = null;
+    let bestTerrainDem: TerrainDemData | null = null;
+    let activeTerrainFeatures: OpenStreetMapFeatures = emptyOpenStreetMapFeatures;
+    const requestedTerrainCoverageKeys = new Set<string>();
+    let scheduledTerrainCoverageKey: string | null = null;
+    let terrainZoomTimer: number | null = null;
+    let terrainLoadInProgress = false;
     terrainVisibilityToggle.addEventListener("change", () => {
       terrainVisible = terrainVisibilityToggle.checked;
       activeLandscapeMeshes.forEach((mesh) => setMeshVisible(mesh, terrainVisible));
@@ -435,6 +450,13 @@ const initializeViewer = async (): Promise<void> => {
 
     const renderTrack = (track: Track): void => {
       terrainRequestController?.abort();
+      if (terrainZoomTimer !== null) {
+        window.clearTimeout(terrainZoomTimer);
+        terrainZoomTimer = null;
+      }
+      scheduledTerrainCoverageKey = null;
+      requestedTerrainCoverageKeys.clear();
+      terrainLoadInProgress = false;
       terrainRequestId += 1;
       const requestId = terrainRequestId;
       const requestController = new AbortController();
@@ -471,37 +493,36 @@ const initializeViewer = async (): Promise<void> => {
       activeGradientCurtainMeshes = gradientCurtainMeshes;
       hoverOverlay.setRoute(geometry);
       fitCameraToBounds(camera, canvas, cameraBounds);
-      const fittedCamera = {
+      const captureCamera = () => ({
         alpha: camera.alpha,
         beta: camera.beta,
         radius: camera.radius,
         targetX: camera.target.x,
         targetY: camera.target.y,
         targetZ: camera.target.z,
-      };
-
-      void (async () => {
-        const [elevationResult, openStreetMapResult] = await Promise.allSettled([
-          loadTerrainDem(geometry),
-          loadOpenStreetMapFeatures(geometry, requestController.signal),
-        ]);
-
-        if (requestId !== terrainRequestId) {
-          return;
+      });
+      let fittedCamera = captureCamera();
+      const currentTerrainView = (): TerrainView | null => {
+        const { width, height } = canvas.getBoundingClientRect();
+        if (trackProjection === null) {
+          return null;
         }
-
-        const elevationAvailable = elevationResult.status === "fulfilled";
-        const elevationAt = elevationAvailable ? elevationResult.value : () => null;
-        const openStreetMapAvailable = openStreetMapResult.status === "fulfilled";
-        const openStreetMapFeatures: OpenStreetMapFeatures = openStreetMapAvailable
-          ? openStreetMapResult.value
-          : emptyOpenStreetMapFeatures;
-        const landUseIndex = createLandUseSpatialIndex(openStreetMapFeatures.areas);
-        const terrainColorAt = openStreetMapFeatures.areas.length === 0
+        const view = getMapCameraView(camera, { width, height }, trackProjection);
+        return view === null ? null : { center: view.center, zoom: view.zoom, width, height, pitch: view.pitch };
+      };
+      const renderLandscape = (
+        elevationData: TerrainDemData | null,
+        features: OpenStreetMapFeatures,
+        gridSize: number,
+        fitCamera: boolean,
+      ): void => {
+        const landUseIndex = createLandUseSpatialIndex(features.areas);
+        const terrainColorAt = features.areas.length === 0
           ? undefined
           : (x: number, z: number) => landUseIndex.getColorAt(x, z) ?? [0.3, 0.4, 0.24] as const;
-        const terrain = createTerrainMeshData(geometry, elevationAt, 65, terrainColorAt);
-        const scenery = createTerrainScenery(terrain, geometry, undefined, openStreetMapFeatures, landUseIndex);
+        const noElevation: TerrainElevationSampler = () => null;
+        const terrain = createTerrainMeshData(geometry, elevationData?.elevationAt ?? noElevation, gridSize, terrainColorAt);
+        const scenery = createTerrainScenery(terrain, geometry, undefined, features, landUseIndex);
         const landscapeMeshes = [
           createLandscapeMesh(engine, "route-terrain-ground", terrain, [0.3, 0.4, 0.24], [0.035, 0.05, 0.025]),
           ...(scenery.foliage.positions.length === 0
@@ -521,8 +542,13 @@ const initializeViewer = async (): Promise<void> => {
           addToScene(scene, mesh);
           setMeshVisible(mesh, terrainVisible);
         });
+        const previousLandscapeMeshes = activeLandscapeMeshes;
+        previousLandscapeMeshes.forEach((mesh) => removeFromScene(scene, mesh));
         activeLandscapeMeshes = landscapeMeshes;
-        activeMeshes = [...activeMeshes, ...landscapeMeshes];
+        activeMeshes = [
+          ...activeMeshes.filter((mesh) => !previousLandscapeMeshes.includes(mesh)),
+          ...landscapeMeshes,
+        ];
 
         const cameraUnchanged =
           Math.abs(camera.alpha - fittedCamera.alpha) < 1e-6 &&
@@ -531,28 +557,109 @@ const initializeViewer = async (): Promise<void> => {
           Math.abs(camera.target.x - fittedCamera.targetX) < 1e-6 &&
           Math.abs(camera.target.y - fittedCamera.targetY) < 1e-6 &&
           Math.abs(camera.target.z - fittedCamera.targetZ) < 1e-6;
-        if (cameraUnchanged) {
+        if (fitCamera && cameraUnchanged) {
           fitCameraToBounds(camera, canvas, {
             ...terrain.bounds,
             minY: Math.min(terrain.bounds.minY, gradientCurtain.bounds.minY),
           });
+          fittedCamera = captureCamera();
+        }
+      };
+
+      activeTerrainFeatures = emptyOpenStreetMapFeatures;
+      bestTerrainDem = null;
+      activeTerrainLoader = createTerrainDemLoader(geometry, requestController.signal);
+      renderLandscape(null, activeTerrainFeatures, 65, true);
+      const initialMapZoom = currentTerrainView()?.zoom ?? 8;
+      const getGridSizeAtZoom = (mapZoom: number): number =>
+        Math.max(17, Math.min(129, Math.round(65 * 2 ** (mapZoom - initialMapZoom))));
+
+      updateTerrainForZoom = (): void => {
+        const view = currentTerrainView();
+        if (view === null || activeTerrainLoader === null) {
+          return;
         }
 
-        const elevationStatus = elevationAvailable ? "map-tile elevation" : "GPX-conformed terrain; elevation tiles unavailable";
-        const landUseStatus = openStreetMapFeatures.areas.length > 0
-          ? "OpenStreetMap land-use styles"
-          : openStreetMapAvailable
-            ? "no mapped OpenStreetMap land-use here"
-            : "OpenStreetMap data unavailable";
-        const buildingStatus = openStreetMapFeatures.buildings.length > 0
-          ? `${openStreetMapFeatures.buildings.length} mapped buildings`
-          : "procedural buildings";
-        setStatus(`Route loaded with ${elevationStatus}, ${landUseStatus}, and ${buildingStatus}. Drag to pan, Control-drag to orbit, or scroll to zoom.`);
-      })();
+        const coverage = getTerrainTileCoverage(geometry, view.zoom, view);
+        const coverageKey = `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}`;
+        if (requestedTerrainCoverageKeys.has(coverageKey)) {
+          return;
+        }
+        if (scheduledTerrainCoverageKey === coverageKey) {
+          return;
+        }
+        if (terrainZoomTimer !== null) {
+          window.clearTimeout(terrainZoomTimer);
+        }
+        scheduledTerrainCoverageKey = coverageKey;
+        terrainZoomTimer = window.setTimeout(() => {
+          terrainZoomTimer = null;
+          scheduledTerrainCoverageKey = null;
+          const currentView = currentTerrainView();
+          const loader = activeTerrainLoader;
+          if (currentView === null || loader === null || requestId !== terrainRequestId) {
+            return;
+          }
+
+          const requestedCoverage = getTerrainTileCoverage(geometry, currentView.zoom, currentView);
+          const requestedCoverageKey = `${requestedCoverage.zoom}:${requestedCoverage.minX}:${requestedCoverage.maxX}:${requestedCoverage.minY}:${requestedCoverage.maxY}`;
+          if (requestedTerrainCoverageKeys.has(requestedCoverageKey)) {
+            return;
+          }
+          if (terrainLoadInProgress) {
+            return;
+          }
+          requestedTerrainCoverageKeys.add(requestedCoverageKey);
+          if (requestedTerrainCoverageKeys.size > 256) {
+            const oldestKey = requestedTerrainCoverageKeys.values().next().value;
+            if (oldestKey !== undefined) {
+              requestedTerrainCoverageKeys.delete(oldestKey);
+            }
+          }
+          terrainLoadInProgress = true;
+          void loader(currentView.zoom, currentView).then((terrainDem) => {
+            if (requestId !== terrainRequestId) {
+              return;
+            }
+
+            bestTerrainDem = retainBestTerrainElevation(bestTerrainDem, terrainDem);
+            renderLandscape(
+              bestTerrainDem,
+              activeTerrainFeatures,
+              getGridSizeAtZoom(currentTerrainView()?.zoom ?? terrainDem.zoom),
+              true,
+            );
+            setStatus(`Terrain updated with elevation tiles at zoom ${terrainDem.zoom}.`);
+          }).catch(() => {
+            if (requestId === terrainRequestId && bestTerrainDem === null) {
+              setStatus("Elevation tiles are unavailable; showing GPX-conformed terrain.");
+            }
+          }).finally(() => {
+            if (requestId === terrainRequestId) {
+              terrainLoadInProgress = false;
+              updateTerrainForZoom();
+            }
+          });
+        }, 180);
+      };
+
+      void loadOpenStreetMapFeatures(geometry, requestController.signal).then((features) => {
+        if (requestId !== terrainRequestId) {
+          return;
+        }
+        activeTerrainFeatures = features;
+        renderLandscape(
+          bestTerrainDem,
+          features,
+          getGridSizeAtZoom(currentTerrainView()?.zoom ?? initialMapZoom),
+          true,
+        );
+      }).catch(() => {});
+      updateTerrainForZoom();
 
       viewerRouteTitle.textContent = track.name;
       emptyState.hidden = true;
-      setStatus("Route loaded. Fetching elevation tiles and OpenStreetMap land-use/building data…");
+      setStatus("Route loaded. Showing GPX-conformed terrain while elevation and map features load…");
     };
 
     const openFile = async (file: File): Promise<void> => {
