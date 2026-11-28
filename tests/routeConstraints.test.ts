@@ -113,4 +113,36 @@ describe("route constraint spatial index", () => {
     expect(findConstraints(0, 0, 0)).toEqual(findRouteConstraintsByScan(0, 0, points, 0));
     expect(findConstraints(1_000, 1_000, 5)).toEqual(findRouteConstraintsByScan(1_000, 1_000, points, 5));
   });
+
+  it("detects building footprints that overlap the road corridor, including a route crossing", () => {
+    const points = [
+      routePoint(-10, 10, 0),
+      routePoint(10, 10, 0),
+      routePoint(100, 10, 100),
+      ...Array.from({ length: 32 }, (_value, index) => routePoint(110 + index * 10, 10, 110 + index * 10)),
+    ];
+    const findConstraints = createRouteConstraintIndex(points);
+    const crossingFootprint = [
+      { x: -1, z: -10 },
+      { x: 1, z: -10 },
+      { x: 1, z: 10 },
+      { x: -1, z: 10 },
+    ];
+    const clearFootprint = [
+      { x: -1, z: 4 },
+      { x: 1, z: 4 },
+      { x: 1, z: 6 },
+      { x: -1, z: 6 },
+    ];
+    const adjacentFootprint = [
+      { x: -1, z: 2 },
+      { x: 1, z: 2 },
+      { x: 1, z: 4 },
+      { x: -1, z: 4 },
+    ];
+
+    expect(findConstraints.overlapsRoad(crossingFootprint, 3)).toBe(true);
+    expect(findConstraints.overlapsRoad(adjacentFootprint, 3)).toBe(true);
+    expect(findConstraints.overlapsRoad(clearFootprint, 3)).toBe(false);
+  });
 });

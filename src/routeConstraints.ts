@@ -2,6 +2,9 @@ import type { TrackRoutePoint } from "./trackGeometry";
 
 export type RouteConstraint = Readonly<{ distance: number; x: number; z: number; y: number; elevation: number }>;
 export type RouteConstraints = Readonly<{ nearest: RouteConstraint; lowestNearbyRouteHeight: number | null }>;
+export type RouteConstraintIndex = ((x: number, z: number, maximumDistance: number) => RouteConstraints) & Readonly<{
+  overlapsRoad: (polygon: readonly Readonly<{ x: number; z: number }>[], roadHalfWidth: number) => boolean;
+}>;
 
 type RouteSegment = Readonly<{
   index: number;
@@ -58,9 +61,126 @@ const distanceSquaredToBounds = (x: number, z: number, bounds: RouteBounds): num
   return dx * dx + dz * dz;
 };
 
+const getPolygonBounds = (polygon: readonly Readonly<{ x: number; z: number }>[]): RouteBounds | null => {
+  if (polygon.length < 3) return null;
+  return polygon.reduce((bounds, point) => ({
+    minX: Math.min(bounds.minX, point.x),
+    maxX: Math.max(bounds.maxX, point.x),
+    minZ: Math.min(bounds.minZ, point.z),
+    maxZ: Math.max(bounds.maxZ, point.z),
+  }), {
+    minX: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  });
+};
+
+const boundsOverlap = (first: RouteBounds, second: RouteBounds): boolean =>
+  first.minX <= second.maxX && first.maxX >= second.minX && first.minZ <= second.maxZ && first.maxZ >= second.minZ;
+
+const distanceSquaredToSegment = (
+  point: Readonly<{ x: number; z: number }>,
+  start: Readonly<{ x: number; z: number }>,
+  end: Readonly<{ x: number; z: number }>,
+): number => {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  const progress = lengthSquared === 0
+    ? 0
+    : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSquared));
+  return (point.x - (start.x + dx * progress)) ** 2 + (point.z - (start.z + dz * progress)) ** 2;
+};
+
+const orientation = (
+  first: Readonly<{ x: number; z: number }>,
+  second: Readonly<{ x: number; z: number }>,
+  third: Readonly<{ x: number; z: number }>,
+): number => (second.x - first.x) * (third.z - first.z) - (second.z - first.z) * (third.x - first.x);
+
+const segmentsIntersect = (
+  firstStart: Readonly<{ x: number; z: number }>,
+  firstEnd: Readonly<{ x: number; z: number }>,
+  secondStart: Readonly<{ x: number; z: number }>,
+  secondEnd: Readonly<{ x: number; z: number }>,
+): boolean => {
+  const firstSide = orientation(firstStart, firstEnd, secondStart);
+  const secondSide = orientation(firstStart, firstEnd, secondEnd);
+  const thirdSide = orientation(secondStart, secondEnd, firstStart);
+  const fourthSide = orientation(secondStart, secondEnd, firstEnd);
+  const coordinateScale = Math.max(
+    1,
+    Math.abs(firstStart.x), Math.abs(firstStart.z),
+    Math.abs(firstEnd.x), Math.abs(firstEnd.z),
+    Math.abs(secondStart.x), Math.abs(secondStart.z),
+    Math.abs(secondEnd.x), Math.abs(secondEnd.z),
+  );
+  const areaTolerance = Number.EPSILON * coordinateScale * coordinateScale * 16;
+  const linearTolerance = Number.EPSILON * coordinateScale * 16;
+  const within = (value: number, first: number, second: number): boolean =>
+    value >= Math.min(first, second) - linearTolerance && value <= Math.max(first, second) + linearTolerance;
+  const liesOnSegment = (
+    point: Readonly<{ x: number; z: number }>,
+    start: Readonly<{ x: number; z: number }>,
+    end: Readonly<{ x: number; z: number }>,
+    side: number,
+  ): boolean => Math.abs(side) <= areaTolerance &&
+    within(point.x, start.x, end.x) && within(point.z, start.z, end.z);
+  const firstSign = firstSide > areaTolerance ? 1 : firstSide < -areaTolerance ? -1 : 0;
+  const secondSign = secondSide > areaTolerance ? 1 : secondSide < -areaTolerance ? -1 : 0;
+  const thirdSign = thirdSide > areaTolerance ? 1 : thirdSide < -areaTolerance ? -1 : 0;
+  const fourthSign = fourthSide > areaTolerance ? 1 : fourthSide < -areaTolerance ? -1 : 0;
+
+  if (firstSign * secondSign < 0 && thirdSign * fourthSign < 0) return true;
+  return (firstSign === 0 && liesOnSegment(secondStart, firstStart, firstEnd, firstSide)) ||
+    (secondSign === 0 && liesOnSegment(secondEnd, firstStart, firstEnd, secondSide)) ||
+    (thirdSign === 0 && liesOnSegment(firstStart, secondStart, secondEnd, thirdSide)) ||
+    (fourthSign === 0 && liesOnSegment(firstEnd, secondStart, secondEnd, fourthSide));
+};
+
+const isInsidePolygon = (
+  point: Readonly<{ x: number; z: number }>,
+  polygon: readonly Readonly<{ x: number; z: number }>[],
+): boolean => {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const first = polygon[previous];
+    const second = polygon[index];
+    if (distanceSquaredToSegment(point, first, second) <= 1e-16) return true;
+    if ((first.z > point.z) !== (second.z > point.z) &&
+      point.x < ((second.x - first.x) * (point.z - first.z)) / (second.z - first.z) + first.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+const routeSegmentOverlapsPolygon = (
+  segment: RouteSegment,
+  polygon: readonly Readonly<{ x: number; z: number }>[],
+  roadHalfWidthSquared: number,
+): boolean => {
+  if (isInsidePolygon(segment.start, polygon) || isInsidePolygon(segment.end, polygon)) return true;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const edgeStart = polygon[index];
+    const edgeEnd = polygon[(index + 1) % polygon.length];
+    if (segmentsIntersect(segment.start, segment.end, edgeStart, edgeEnd)) return true;
+    if (
+      distanceSquaredToSegment(segment.start, edgeStart, edgeEnd) <= roadHalfWidthSquared ||
+      distanceSquaredToSegment(segment.end, edgeStart, edgeEnd) <= roadHalfWidthSquared ||
+      distanceSquaredToSegment(edgeStart, segment.start, segment.end) <= roadHalfWidthSquared ||
+      distanceSquaredToSegment(edgeEnd, segment.start, segment.end) <= roadHalfWidthSquared
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const createRouteConstraintIndex = (
   points: readonly TrackRoutePoint[],
-): ((x: number, z: number, maximumDistance: number) => RouteConstraints) => {
+): RouteConstraintIndex => {
   if (points.length < 2) {
     throw new Error("At least two route points are required to find route constraints.");
   }
@@ -81,7 +201,7 @@ export const createRouteConstraintIndex = (
   });
   const tree = buildRouteTree(segments);
 
-  return (x, z, maximumDistance): RouteConstraints => {
+  const findConstraints = (x: number, z: number, maximumDistance: number): RouteConstraints => {
     let nearest: RouteConstraint = {
       distance: Number.POSITIVE_INFINITY,
       x: points[0].x,
@@ -147,4 +267,32 @@ export const createRouteConstraintIndex = (
       lowestNearbyRouteHeight: Number.isFinite(lowestNearbyRouteHeight) ? lowestNearbyRouteHeight : null,
     };
   };
+
+  const overlapsRoad = (
+    polygon: readonly Readonly<{ x: number; z: number }>[],
+    roadHalfWidth: number,
+  ): boolean => {
+    const polygonBounds = getPolygonBounds(polygon);
+    if (polygonBounds === null) return false;
+    const searchBounds = {
+      minX: polygonBounds.minX - roadHalfWidth,
+      maxX: polygonBounds.maxX + roadHalfWidth,
+      minZ: polygonBounds.minZ - roadHalfWidth,
+      maxZ: polygonBounds.maxZ + roadHalfWidth,
+    };
+    const roadHalfWidthSquared = roadHalfWidth * roadHalfWidth;
+
+    const visitOverlaps = (node: RouteNode): boolean => {
+      if (!boundsOverlap(node, searchBounds)) return false;
+      if ("segments" in node) {
+        return node.segments.some((segment) =>
+          boundsOverlap(segment, searchBounds) && routeSegmentOverlapsPolygon(segment, polygon, roadHalfWidthSquared));
+      }
+      return visitOverlaps(node.left) || visitOverlaps(node.right);
+    };
+
+    return visitOverlaps(tree);
+  };
+
+  return Object.freeze(Object.assign(findConstraints, { overlapsRoad }));
 };

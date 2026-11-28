@@ -580,7 +580,8 @@ export const createLandUseSpatialIndex = (
       const category = getSelectedAreaAt(x, z)?.area.category;
       return category === undefined ? null : landUseStyles[category].color;
     },
-    canPlaceTreeAt: (x, z) => getSelectedAreaAt(x, z)?.area.treesAllowed ?? true,
+    canPlaceTreeAt: (x, z) =>
+      (getSelectedAreaAt(x, z)?.area.treesAllowed ?? true) && getSelectedAreaAt(x, z, buildingRoot) === null,
     canPlaceGrassAt: (x, z) => {
       const category = getSelectedAreaAt(x, z)?.area.category;
       return category !== "water" && category !== "residential" && category !== "industrial" &&

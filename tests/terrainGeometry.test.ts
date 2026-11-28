@@ -274,7 +274,7 @@ describe("terrain geometry", () => {
       }
     }
 
-    expect(scenery.foliage.positions.length / 135).toBe(200);
+    expect(scenery.foliage.positions.length / 135).toBe(100);
     expect(foliageVerticesBesideRoute / (scenery.foliage.positions.length / 3)).toBeGreaterThan(0.75);
   });
 });

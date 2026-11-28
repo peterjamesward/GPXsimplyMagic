@@ -1,6 +1,7 @@
 import type { TrackMeshPart, TrackMeshData } from "./trackGeometry";
 import type { TerrainMeshData } from "./terrainGeometry";
 import { createRouteConstraintIndex } from "./routeConstraints";
+import { getBuildingGroundBaseY } from "./buildingGeometry";
 import {
   createLandUseSpatialIndex,
   emptyOpenStreetMapFeatures,
@@ -187,10 +188,11 @@ const createBuilding = (
     y: 0,
     z: localX * sin + localZ * cos,
   });
-  const leftFront = point(-width / 2, groundY, -depth / 2);
-  const rightFront = point(width / 2, groundY, -depth / 2);
-  const leftBack = point(-width / 2, groundY, depth / 2);
-  const rightBack = point(width / 2, groundY, depth / 2);
+  const groundBaseY = getBuildingGroundBaseY(groundY, scale);
+  const leftFront = point(-width / 2, groundBaseY, -depth / 2);
+  const rightFront = point(width / 2, groundBaseY, -depth / 2);
+  const leftBack = point(-width / 2, groundBaseY, depth / 2);
+  const rightBack = point(width / 2, groundBaseY, depth / 2);
   const leftFrontEave = point(-width / 2, groundY + wallHeight, -depth / 2);
   const rightFrontEave = point(width / 2, groundY + wallHeight, -depth / 2);
   const leftBackEave = point(-width / 2, groundY + wallHeight, depth / 2);
@@ -287,7 +289,7 @@ const createMappedBuilding = (
 
   const height = (building.heightMeters ?? 6) * scale;
   const ground = points.map((point) => terrain.sampleHeightAt(point.x, point.z));
-  const baseVertices = points.map((point, index) => ({ x: point.x, y: ground[index], z: point.z }));
+  const baseVertices = points.map((point, index) => ({ x: point.x, y: getBuildingGroundBaseY(ground[index], scale), z: point.z }));
   const roofVertices = points.map((point, index) => ({ x: point.x, y: ground[index] + height, z: point.z }));
   const orientation = signedArea(points) >= 0 ? 1 : -1;
 
@@ -404,7 +406,9 @@ export const createTerrainScenery = (
     );
   }
 
-  features.buildings.forEach((building) => createMappedBuilding(building, terrain, scale, buildingWalls, buildingRoofs));
+  features.buildings
+    .filter((building) => !findRouteConstraints.overlapsRoad(building.points, geometry.roadHalfWidth))
+    .forEach((building) => createMappedBuilding(building, terrain, scale, buildingWalls, buildingRoofs));
 
   for (let attempt = 0; !hasMappedBuildings && buildings.length < targetBuildingCount && attempt < targetBuildingCount * 150; attempt += 1) {
     const placement = createPlacement();

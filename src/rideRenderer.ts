@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createRouteConstraintIndex } from "./routeConstraints";
+import { getBuildingGroundBaseY } from "./buildingGeometry";
 import {
   createLandUseSpatialIndex,
   emptyOpenStreetMapFeatures,
@@ -465,6 +466,7 @@ const createMappedBuildings = (
   terrain: TerrainMeshData,
   geometry: TrackMeshData,
   buildings: readonly OpenStreetMapBuilding[],
+  routeIndex: ReturnType<typeof createRouteConstraintIndex>,
 ): THREE.Group => {
   const group = new THREE.Group();
   const scale = geometry.projection.sceneUnitsPerMeter;
@@ -473,6 +475,7 @@ const createMappedBuildings = (
   buildings.forEach((building) => {
     const footprint = building.points.slice(0, -1);
     if (footprint.length < 3) return;
+    if (routeIndex.overlapsRoad(footprint, geometry.roadHalfWidth)) return;
     const bounds = getBuildingBounds(building);
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerZ = (bounds.minZ + bounds.maxZ) / 2;
@@ -491,9 +494,11 @@ const createMappedBuildings = (
       else shape.lineTo(x, -z);
     });
     shape.closePath();
-    const height = (building.heightMeters ?? 7) * scale * 2;
+    const height = Math.max((building.heightMeters ?? 7) * scale * 2, 0.8 * scale);
+    const baseHeight = terrain.sampleHeightAt(centerX, centerZ);
+    const groundBaseY = getBuildingGroundBaseY(baseHeight, scale);
     const meshGeometry = new THREE.ExtrudeGeometry(shape, {
-      depth: Math.max(height, 0.8 * scale),
+      depth: height + baseHeight - groundBaseY,
       bevelEnabled: true,
       bevelSegments: 1,
       bevelThickness: 0.08 * scale,
@@ -512,8 +517,7 @@ const createMappedBuildings = (
       side: THREE.DoubleSide,
     });
     const buildingMesh = new THREE.Mesh(meshGeometry, [wallMaterial, roofMaterial]);
-    const baseHeight = terrain.sampleHeightAt(centerX, centerZ);
-    buildingMesh.position.set(centerX, baseHeight, centerZ);
+    buildingMesh.position.set(centerX, groundBaseY, centerZ);
     buildingMesh.castShadow = true;
     buildingMesh.receiveShadow = true;
     group.add(buildingMesh);
@@ -607,7 +611,7 @@ const makeChunkGroup = (
     findRouteConstraints,
     stylizedAssets,
   ));
-  group.add(createMappedBuildings(descriptor, terrain, geometry, features.buildings));
+  group.add(createMappedBuildings(descriptor, terrain, geometry, features.buildings, findRouteConstraints));
   group.userData.terrainRevision = revision;
   return group;
 };

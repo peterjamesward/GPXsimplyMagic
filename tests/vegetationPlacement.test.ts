@@ -21,14 +21,14 @@ const terrain = createTerrainMeshData(geometry, () => 1200, 9);
 
 describe("stylized vegetation placement", () => {
   it("uses the reduced route and Ride tree and grass targets", () => {
-    expect(getRouteTreePlacementTarget(30_000)).toBe(200);
-    expect(getRouteTreePlacementTarget(0)).toBe(6);
+    expect(getRouteTreePlacementTarget(30_000)).toBe(100);
+    expect(getRouteTreePlacementTarget(0)).toBe(3);
     expect(getRouteGrassPlacementTarget(1_000)).toBe(10_000);
     expect(getRouteGrassPlacementTarget(0)).toBe(1_500);
     expect(getRouteGrassPlacementTarget(10_000)).toBe(20_000);
-    expect(getRideTreePlacementTarget(33)).toBe(16);
-    expect(getRideTreePlacementTarget(17)).toBe(9);
-    expect(getRideTreePlacementTarget(16)).toBe(3);
+    expect(getRideTreePlacementTarget(33)).toBe(8);
+    expect(getRideTreePlacementTarget(17)).toBe(5);
+    expect(getRideTreePlacementTarget(16)).toBe(2);
     expect(getRideGrassPlacementTarget(33)).toBe(4_500);
     expect(getRideGrassPlacementTarget(17)).toBe(1_800);
     expect(getRideGrassPlacementTarget(16)).toBe(500);

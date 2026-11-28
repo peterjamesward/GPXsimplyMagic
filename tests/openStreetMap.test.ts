@@ -19,16 +19,17 @@ const geometry = createTrackMeshData([
   { latitude: 0.001, longitude: 0.001, elevationMeters: 100 },
 ]);
 
-const box = (distance: number): readonly { lat: number; lon: number }[] => {
+const box = (distance: number, northOffsetMeters = 0): readonly { lat: number; lon: number }[] => {
   const { centerLatitude, centerLongitude } = geometry.projection;
   const latitudeOffset = distance / 111_320;
   const longitudeOffset = distance / (Math.max(0.00001, Math.abs(geometry.projection.longitudeScale)) * 111_320);
+  const centerLat = centerLatitude + northOffsetMeters / 111_320;
   return [
-    { lat: centerLatitude - latitudeOffset, lon: centerLongitude - longitudeOffset },
-    { lat: centerLatitude - latitudeOffset, lon: centerLongitude + longitudeOffset },
-    { lat: centerLatitude + latitudeOffset, lon: centerLongitude + longitudeOffset },
-    { lat: centerLatitude + latitudeOffset, lon: centerLongitude - longitudeOffset },
-    { lat: centerLatitude - latitudeOffset, lon: centerLongitude - longitudeOffset },
+    { lat: centerLat - latitudeOffset, lon: centerLongitude - longitudeOffset },
+    { lat: centerLat - latitudeOffset, lon: centerLongitude + longitudeOffset },
+    { lat: centerLat + latitudeOffset, lon: centerLongitude + longitudeOffset },
+    { lat: centerLat + latitudeOffset, lon: centerLongitude - longitudeOffset },
+    { lat: centerLat - latitudeOffset, lon: centerLongitude - longitudeOffset },
   ];
 };
 
@@ -174,6 +175,16 @@ describe("OpenStreetMap route features", () => {
     expect(canPlaceProceduralTreeAt(100, 100, features.areas)).toBe(true);
   });
 
+  it("keeps procedural trees outside mapped building footprints", () => {
+    const features = parseOpenStreetMapFeatures({
+      elements: [{ type: "way", id: 11, tags: { building: "house" }, geometry: box(20) }],
+    }, geometry);
+    const index = createLandUseSpatialIndex(features.areas, features.buildings);
+
+    expect(index.canPlaceTreeAt(0, 0)).toBe(false);
+    expect(index.canPlaceTreeAt(100, 100)).toBe(true);
+  });
+
   it("matches exhaustive land-use lookups across overlapping spatially indexed areas", () => {
     const categories = ["water", "farmland", "woodland", "grassland", "residential", "industrial", "bare"] as const;
     const areas: OpenStreetMapArea[] = Array.from({ length: 40 }, (_value, index) => {
@@ -231,7 +242,7 @@ describe("OpenStreetMap route features", () => {
           type: "way",
           id: 6,
           tags: { building: "house", height: "12 m", "building:colour": "#cc8844", "roof:colour": "#456789" },
-          geometry: box(20),
+          geometry: box(20, 50),
         },
       ],
     }, geometry);
@@ -254,9 +265,24 @@ describe("OpenStreetMap route features", () => {
     expect(scenery.buildingRoofs.colors?.slice(0, 4)).toEqual([...features.buildings[0].roofColor, 1]);
     expect(scenery.buildingWalls.positions.length).toBeGreaterThan(0);
     expect(scenery.buildingRoofs.positions.length).toBeGreaterThan(0);
+    expect(scenery.buildingWalls.positions[1]).toBeCloseTo(
+      terrain.sampleHeightAt(firstBuildingPoint.x, firstBuildingPoint.z) - 4 * geometry.projection.sceneUnitsPerMeter,
+      8,
+    );
     expect(scenery.buildingRoofs.positions[mappedRoof]).toBeGreaterThan(terrain.sampleHeightAt(firstBuildingPoint.x, firstBuildingPoint.z));
     expect(Object.isFrozen(scenery.buildingWalls.colors)).toBe(true);
     expect(canPlaceProceduralTreeAt(0, 0, orchard.areas)).toBe(true);
+  });
+
+  it("culls mapped building footprints that overlap the route road", () => {
+    const features = parseOpenStreetMapFeatures({
+      elements: [{ type: "way", id: 8, tags: { building: "house" }, geometry: box(20) }],
+    }, geometry);
+    const terrain = createTerrainMeshData(geometry, () => 100, 9);
+    const scenery = createTerrainScenery(terrain, geometry, 42, features);
+
+    expect(scenery.buildingWalls.positions).toHaveLength(0);
+    expect(scenery.buildingRoofs.positions).toHaveLength(0);
   });
 
   it("keeps procedural trees and buildings out of mapped farmland", () => {

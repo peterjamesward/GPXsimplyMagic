@@ -23,13 +23,13 @@ export type StylizedGrassPlacement = Readonly<{
 export type GrassPlacementMode = "area" | "route";
 
 export const getRouteTreePlacementTarget = (routeLengthMeters: number): number =>
-  Math.round(Math.max(24, Math.min(800, Math.round(routeLengthMeters / 30))) / 4);
+  Math.round(Math.max(24, Math.min(800, Math.round(routeLengthMeters / 30))) / 8);
 
 export const getRouteGrassPlacementTarget = (routeLengthMeters: number): number =>
   Math.min(20_000, Math.max(1_500, Math.round(routeLengthMeters * 10)));
 
 export const getRideTreePlacementTarget = (gridSize: number): number =>
-  gridSize >= 33 ? 16 : gridSize >= 17 ? 9 : 3;
+  gridSize >= 33 ? 8 : gridSize >= 17 ? 5 : 2;
 
 export const getRideGrassPlacementTarget = (gridSize: number): number =>
   gridSize >= 33 ? 4_500 : gridSize >= 17 ? 1_800 : 500;
