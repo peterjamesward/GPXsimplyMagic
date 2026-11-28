@@ -10,7 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "copc": "^0.0.9",
     "maplibre-gl": "^6.19.0",
+    "proj4": "^2.23.0",
     "three": "^0.187.0"
   },
   "devDependencies": {
