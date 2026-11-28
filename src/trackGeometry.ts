@@ -1,5 +1,7 @@
 import { getTrackSegmentDistanceMeters, type TrackPoint } from "./gpx";
 
+export const roadTextureWorldSizeMeters = 16;
+
 export type TrackMeshPart = Readonly<{
   positions: readonly number[];
   normals: readonly number[];
@@ -152,7 +154,8 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
     })];
   }, []);
 
-  const halfWidth = 3 * scale;
+  const halfWidthMeters = 3;
+  const halfWidth = halfWidthMeters * scale;
   const topSurface = createMutableMeshPart();
 
   const appendQuad = (
@@ -198,13 +201,14 @@ export const createTrackMeshData = (points: readonly TrackPoint[]): TrackMeshDat
 
     const start = createSection(startPoint);
     const end = createSection(endPoint);
-    const startDistance = routePoints[index].distanceMeters / 2;
-    const endDistance = routePoints[index + 1].distanceMeters / 2;
+    const startDistance = routePoints[index].distanceMeters / roadTextureWorldSizeMeters;
+    const endDistance = routePoints[index + 1].distanceMeters / roadTextureWorldSizeMeters;
+    const roadWidthUv = (halfWidthMeters * 2) / roadTextureWorldSizeMeters;
     appendQuad(
       topSurface,
       [start.left, end.left, end.right, start.right],
       { x: 0, y: 1, z: 0 },
-      [[startDistance, 0], [endDistance, 0], [endDistance, 3], [startDistance, 3]],
+      [[startDistance, 0], [endDistance, 0], [endDistance, roadWidthUv], [startDistance, roadWidthUv]],
     );
   }
 

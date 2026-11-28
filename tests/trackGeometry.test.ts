@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrackPoint } from "../src/gpx";
-import { createTrackMeshData, getContinuousLongitudes } from "../src/trackGeometry";
+import { createTrackMeshData, getContinuousLongitudes, roadTextureWorldSizeMeters } from "../src/trackGeometry";
 
 const samplePoints: readonly TrackPoint[] = [
   { latitude: 46.8, longitude: 9.5, elevationMeters: 1200 },
@@ -47,6 +47,7 @@ describe("createTrackMeshData", () => {
     const geometry = createTrackMeshData(points);
     const xCoordinates = geometry.topSurface.positions.filter((_value, index) => index % 3 === 0);
     const yCoordinates = geometry.topSurface.positions.filter((_value, index) => index % 3 === 1);
+    const acrossRoadUvs = geometry.topSurface.uvs?.filter((_value, index) => index % 2 === 1) ?? [];
     const expectedScale = 12 / 111.32;
 
     expect(Math.max(...xCoordinates) - Math.min(...xCoordinates)).toBeCloseTo(6 * expectedScale, 5);
@@ -54,6 +55,8 @@ describe("createTrackMeshData", () => {
     expect(geometry.positions).toEqual(geometry.topSurface.positions);
     expect(geometry.topSurface.normals.filter((_value, index) => index % 3 === 1).every((normalY) => normalY > 0)).toBe(true);
     expect(geometry.topSurface.uvs).toHaveLength((geometry.topSurface.positions.length / 3) * 2);
+    expect(geometry.topSurface.uvs?.[2]).toBeCloseTo(geometry.routePoints[1].distanceMeters / roadTextureWorldSizeMeters);
+    expect(Math.max(...acrossRoadUvs) - Math.min(...acrossRoadUvs)).toBeCloseTo(6 / roadTextureWorldSizeMeters);
   });
 
   it("maps increasing longitude westward and increasing latitude north", () => {

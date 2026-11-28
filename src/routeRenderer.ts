@@ -5,7 +5,7 @@ import type { TrackMeshData, TrackMeshPart } from "./trackGeometry";
 import { createRouteCamera, getPointerRay as createRoutePointerRay, updateRouteCamera, type RouteCamera, type TrackRay } from "./cameraControls";
 import type { GradientCurtainMeshData } from "./gradientCurtain";
 import { createStylizedGrassMesh, createStylizedTreeGroup, loadStylizedVegetationAssets, updateStylizedVegetationWind, type StylizedVegetationAssets } from "./stylizedVegetation";
-import { loadSurfaceTexture } from "./surfaceTextures";
+import { roadSurfaceColor } from "./surfaceTextures";
 
 export type RouteRenderer = Readonly<{
   camera: RouteCamera;
@@ -99,9 +99,6 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
-  const asphaltTexture = loadSurfaceTexture("asphaltColor", renderer.capabilities.getMaxAnisotropy());
-  const asphaltNormalTexture = loadSurfaceTexture("asphaltNormal", renderer.capabilities.getMaxAnisotropy());
-
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#91bfd0");
   scene.fog = new THREE.Fog("#91bfd0", 70, 260);
@@ -171,10 +168,7 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
     disposeGroup(routeGroup);
     routeGroup = new THREE.Group();
     routeGroup.name = "gpx-route";
-    routeGroup.add(createMesh(geometry.topSurface, "gpx-road-surface", "#ffffff", {
-      map: asphaltTexture,
-      normalMap: asphaltNormalTexture,
-      normalScale: new THREE.Vector2(0.25, 0.25),
+    routeGroup.add(createMesh(geometry.topSurface, "gpx-road-surface", roadSurfaceColor, {
       emissive: "#080a0b",
       roughness: 0.86,
       side: THREE.FrontSide,
@@ -291,8 +285,6 @@ export const createRouteRenderer = (canvas: HTMLCanvasElement): RouteRenderer =>
         disposeMaterial(curtainMesh.material);
       }
       stylizedAssets?.dispose();
-      asphaltTexture.dispose();
-      asphaltNormalTexture.dispose();
       renderer.dispose();
     },
   });

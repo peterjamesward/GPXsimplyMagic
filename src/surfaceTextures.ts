@@ -2,13 +2,13 @@ import * as THREE from "three";
 import type { LandUseCategory } from "./openStreetMap";
 
 export const surfaceTexturePaths = Object.freeze({
-  asphaltColor: "/surface-textures/asphalt_02_diff_2k.webp",
-  asphaltNormal: "/surface-textures/asphalt_02_nor_gl_2k.jpg",
   grassColor: "/surface-textures/leafy_grass_diff_2k.webp",
   grassNormal: "/surface-textures/leafy_grass_nor_gl_1k.jpg",
   rockColor: "/surface-textures/rock_face_03_diff_1k.webp",
   gravelColor: "/surface-textures/gravel_ground_01_diff_1k.webp",
 });
+
+export const roadSurfaceColor = "#414445";
 
 export type SurfaceTextureName = keyof typeof surfaceTexturePaths;
 export type GroundTextureProfile = Readonly<{
@@ -17,7 +17,7 @@ export type GroundTextureProfile = Readonly<{
   blendRockOnSlope: boolean;
 }>;
 
-const normalTextureNames: ReadonlySet<SurfaceTextureName> = new Set(["asphaltNormal", "grassNormal"]);
+const normalTextureNames: ReadonlySet<SurfaceTextureName> = new Set(["grassNormal"]);
 
 export const getGroundTextureProfile = (category: LandUseCategory | null): GroundTextureProfile => {
   if (category === "water") {

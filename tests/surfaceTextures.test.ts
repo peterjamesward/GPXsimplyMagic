@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getGroundTextureProfile, surfaceTexturePaths } from "../src/surfaceTextures";
+import { getGroundTextureProfile, roadSurfaceColor, surfaceTexturePaths } from "../src/surfaceTextures";
 
 describe("surface texture profiles", () => {
   it("uses grass and slope-sensitive rock detail for natural land cover", () => {
@@ -23,12 +23,13 @@ describe("surface texture profiles", () => {
     expect(getGroundTextureProfile("bare").detailTexture).toBe("rockColor");
   });
 
-  it("points to local surface maps for the road and ground materials", () => {
-    expect(Object.values(surfaceTexturePaths)).toHaveLength(6);
+  it("uses crack-free solid tarmac and local maps for ground materials", () => {
+    expect(roadSurfaceColor).toBe("#414445");
+    expect("asphaltColor" in surfaceTexturePaths).toBe(false);
+    expect("asphaltNormal" in surfaceTexturePaths).toBe(false);
+    expect(Object.values(surfaceTexturePaths)).toHaveLength(4);
     expect(Object.values(surfaceTexturePaths).every((path) => path.startsWith("/surface-textures/"))).toBe(true);
-    expect(surfaceTexturePaths.asphaltNormal.endsWith(".jpg")).toBe(true);
     expect(surfaceTexturePaths.grassNormal.endsWith(".jpg")).toBe(true);
-    expect(surfaceTexturePaths.asphaltColor.endsWith(".webp")).toBe(true);
     expect(surfaceTexturePaths.grassColor.endsWith(".webp")).toBe(true);
   });
 });

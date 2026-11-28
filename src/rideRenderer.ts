@@ -24,7 +24,7 @@ import {
   type TerrainMeshData,
 } from "./terrainGeometry";
 import type { TerrainDemData } from "./terrainDem";
-import type { TrackMeshData, TrackMeshPart } from "./trackGeometry";
+import { roadTextureWorldSizeMeters, type TrackMeshData, type TrackMeshPart } from "./trackGeometry";
 import {
   createStylizedGrassPlacements,
   getRideGrassPlacementTarget,
@@ -35,6 +35,7 @@ import { createStylizedGrassMesh, createStylizedTreeGroup, loadStylizedVegetatio
 import {
   getGroundTextureProfile,
   loadSurfaceTexture,
+  roadSurfaceColor,
   type GroundTextureProfile,
   type SurfaceTextureName,
 } from "./surfaceTextures";
@@ -225,6 +226,7 @@ const createPartGeometry = (
   part: TrackMeshPart,
   sceneUnitsPerMeter: number,
   colorsAsLinear = false,
+  uvScalePerMeter = 0.09,
 ): THREE.BufferGeometry => {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(part.positions);
@@ -234,8 +236,8 @@ const createPartGeometry = (
   const uvs = new Float32Array((positions.length / 3) * 2);
   for (let index = 0; index < positions.length; index += 3) {
     const uvIndex = (index / 3) * 2;
-    uvs[uvIndex] = (positions[index] / sceneUnitsPerMeter) * 0.09;
-    uvs[uvIndex + 1] = (positions[index + 2] / sceneUnitsPerMeter) * 0.09;
+    uvs[uvIndex] = (positions[index] / sceneUnitsPerMeter) * uvScalePerMeter;
+    uvs[uvIndex + 1] = (positions[index + 2] / sceneUnitsPerMeter) * uvScalePerMeter;
   }
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   if (part.colors !== undefined) {
@@ -584,7 +586,10 @@ const makeChunkGroup = (
   ground.frustumCulled = true;
   group.add(ground);
   createMappedRoadMeshData(features.roads, descriptor.bounds, sceneScale, terrain.sampleHeightAt).forEach(({ geometry: road, surface }) => {
-    const roadMesh = new THREE.Mesh(createPartGeometry(road, sceneScale), materialForMappedRoad(surface));
+    const roadMesh = new THREE.Mesh(
+      createPartGeometry(road, sceneScale, false, 1 / roadTextureWorldSizeMeters),
+      materialForMappedRoad(surface),
+    );
     roadMesh.receiveShadow = true;
     group.add(roadMesh);
   });
@@ -659,18 +664,13 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
   scene.add(sun.target);
 
   const surfaceTextures: Readonly<Record<SurfaceTextureName, THREE.Texture>> = Object.freeze({
-    asphaltColor: loadSurfaceTexture("asphaltColor", renderer.capabilities.getMaxAnisotropy()),
-    asphaltNormal: loadSurfaceTexture("asphaltNormal", renderer.capabilities.getMaxAnisotropy()),
     grassColor: loadSurfaceTexture("grassColor", renderer.capabilities.getMaxAnisotropy()),
     grassNormal: loadSurfaceTexture("grassNormal", renderer.capabilities.getMaxAnisotropy()),
     rockColor: loadSurfaceTexture("rockColor", renderer.capabilities.getMaxAnisotropy()),
     gravelColor: loadSurfaceTexture("gravelColor", renderer.capabilities.getMaxAnisotropy()),
   });
   const roadMaterial = new THREE.MeshPhysicalMaterial({
-    map: surfaceTextures.asphaltColor,
-    normalMap: surfaceTextures.asphaltNormal,
-    normalScale: new THREE.Vector2(0.3, 0.3),
-    color: "#f4f4f2",
+    color: roadSurfaceColor,
     roughness: 0.76,
     metalness: 0.025,
     clearcoat: 0.18,
@@ -713,9 +713,7 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
     if (material === undefined) {
       material = surface === "paved"
         ? new THREE.MeshStandardMaterial({
-            map: surfaceTextures.asphaltColor,
-            normalMap: surfaceTextures.asphaltNormal,
-            normalScale: new THREE.Vector2(0.2, 0.2),
+            color: roadSurfaceColor,
             roughness: 0.9,
             metalness: 0,
             side: THREE.DoubleSide,
@@ -897,7 +895,10 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
     activeGeometry = geometry;
     routeIndex = createRouteConstraintIndex(geometry.routePoints);
     routeGroup = new THREE.Group();
-    const road = new THREE.Mesh(createPartGeometry(geometry.topSurface, geometry.projection.sceneUnitsPerMeter), roadMaterial);
+    const road = new THREE.Mesh(
+      createPartGeometry(geometry.topSurface, geometry.projection.sceneUnitsPerMeter, false, 1 / roadTextureWorldSizeMeters),
+      roadMaterial,
+    );
     road.castShadow = false;
     road.receiveShadow = true;
     routeGroup.add(road);
