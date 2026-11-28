@@ -1,5 +1,7 @@
 import type { TrackMeshData } from "./trackGeometry";
 import { getTerrainAreaBounds, type TerrainElevationSampler } from "./terrainGeometry";
+import { readRasterElevation } from "./rasterInterpolation";
+import { createLidarWcsRequest, loadLidarTerrain } from "./terrainLidar";
 
 const tileSize = 256;
 const terrainTileUrl = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png";
@@ -11,9 +13,15 @@ const maximumLatitude = 85.05112878;
 type TileCoordinate = Readonly<{ x: number; y: number }>;
 type TileData = Readonly<{ coordinate: TileCoordinate; pixels: Uint8ClampedArray }>;
 export type TileCoverage = Readonly<{ zoom: number; minX: number; maxX: number; minY: number; maxY: number }>;
-type TerrainElevationLayer = Readonly<{ zoom: number; elevationAt: TerrainElevationSampler }>;
+export type TerrainElevationSource = "lidar" | "terrarium";
+type TerrainElevationLayer = Readonly<{
+  zoom: number;
+  source?: TerrainElevationSource;
+  elevationAt: TerrainElevationSampler;
+}>;
 export type TerrainDemData = Readonly<{
   zoom: number;
+  source?: TerrainElevationSource;
   elevationAt: TerrainElevationSampler;
   layers?: readonly TerrainElevationLayer[];
 }>;
@@ -39,9 +47,13 @@ export const retainBestTerrainElevation = (
     return current;
   }
 
-  const layers = [...candidateLayers, ...currentLayers]
-    .sort((left, right) => right.zoom - left.zoom)
-    .slice(0, maximumTerrainElevationLayers);
+  const orderedLayers = [...candidateLayers, ...currentLayers]
+    .sort((left, right) => Number(right.source === "lidar") - Number(left.source === "lidar") || right.zoom - left.zoom);
+  const lidarLayers = orderedLayers.filter((layer) => layer.source === "lidar");
+  const terrariumFallback = orderedLayers.find((layer) => layer.source !== "lidar");
+  const layers = lidarLayers.length > 0 && terrariumFallback !== undefined
+    ? [...lidarLayers.slice(0, maximumTerrainElevationLayers - 1), terrariumFallback]
+    : orderedLayers.slice(0, maximumTerrainElevationLayers);
   const frozenLayers = Object.freeze(layers);
   return Object.freeze({
     zoom: Math.max(current.zoom, candidate.zoom),
@@ -56,6 +68,19 @@ export const retainBestTerrainElevation = (
       return null;
     },
   });
+};
+
+export const getTerrainElevationSources = (terrain: TerrainDemData): readonly TerrainElevationSource[] => {
+  const layers = terrain.layers ?? [terrain];
+  return Object.freeze(Array.from(new Set(layers.map((layer) => layer.source ?? "terrarium"))));
+};
+
+export const getTerrainElevationSourceLabel = (terrain: TerrainDemData): string => {
+  const sources = getTerrainElevationSources(terrain);
+  if (sources.includes("lidar")) {
+    return sources.includes("terrarium") ? "LiDAR · Terrarium fallback" : "Environment Agency LiDAR";
+  }
+  return sources.includes("terrarium") ? "Terrarium" : "GPX elevations";
 };
 
 export const getTerrainDemZoom = (mapZoom: number): number | null => {
@@ -182,28 +207,6 @@ const loadTilePixels = async (coordinate: TileCoordinate, zoom: number, signal?:
   }
 };
 
-const readElevation = (pixels: Float32Array, width: number, height: number, x: number, y: number): number | null => {
-  const column = Math.max(0, Math.min(width - 1, x));
-  const row = Math.max(0, Math.min(height - 1, y));
-  const left = Math.floor(column);
-  const top = Math.floor(row);
-  const right = Math.min(width - 1, left + 1);
-  const bottom = Math.min(height - 1, top + 1);
-  const columnRatio = column - left;
-  const rowRatio = row - top;
-  const values = [
-    { value: pixels[top * width + left], weight: (1 - columnRatio) * (1 - rowRatio) },
-    { value: pixels[top * width + right], weight: columnRatio * (1 - rowRatio) },
-    { value: pixels[bottom * width + left], weight: (1 - columnRatio) * rowRatio },
-    { value: pixels[bottom * width + right], weight: columnRatio * rowRatio },
-  ].filter((sample) => Number.isFinite(sample.value) && sample.weight > 0);
-  const totalWeight = values.reduce((total, sample) => total + sample.weight, 0);
-
-  return totalWeight === 0
-    ? null
-    : values.reduce((total, sample) => total + sample.value * sample.weight, 0) / totalWeight;
-};
-
 export const loadTerrainDem = async (
   geometry: TrackMeshData,
   requestedZoom = maximumTerrainZoom,
@@ -268,11 +271,12 @@ export const loadTerrainDem = async (
 
   return Object.freeze({
     zoom: coverage.zoom,
+    source: "terrarium",
     elevationAt: (latitude: number, longitude: number): number | null => {
       const worldPixel = toWorldPixel(latitude, longitude, coverage.zoom);
       const localX = worldPixel.x - coverage.minX * tileSize;
       const localY = worldPixel.y - coverage.minY * tileSize;
-      return readElevation(elevations, width, height, localX, localY);
+      return readRasterElevation(elevations, width, height, localX, localY);
     },
   });
 };
@@ -282,6 +286,7 @@ export const createTerrainDemLoader = (
   signal?: AbortSignal,
 ): ((mapZoom: number, view?: TerrainView) => Promise<TerrainDemData>) => {
   const pendingRequests = new Map<string, Promise<TerrainDemData>>();
+  const terrariumRequests = new Map<string, Promise<TerrainDemData | null>>();
 
   return (mapZoom: number, view?: TerrainView): Promise<TerrainDemData> => {
     const zoom = getTerrainDemZoom(mapZoom);
@@ -290,13 +295,45 @@ export const createTerrainDemLoader = (
     }
 
     const coverage = getTerrainTileCoverage(geometry, zoom, view);
-    const requestKey = `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}`;
+    const tileCoverageKey = `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}`;
+    const lidarRequest = createLidarWcsRequest(coverage, view);
+    const requestKey = `${tileCoverageKey}:${lidarRequest?.url ?? "no-lidar"}`;
     const existingRequest = pendingRequests.get(requestKey);
     if (existingRequest !== undefined) {
       return existingRequest;
     }
 
-    const request = loadTerrainDem(geometry, zoom, view, signal);
+    let terrarium = terrariumRequests.get(tileCoverageKey);
+    if (terrarium === undefined) {
+      terrarium = loadTerrainDem(geometry, zoom, view, signal).catch((error: unknown) => {
+        terrariumRequests.delete(tileCoverageKey);
+        if (signal?.aborted) {
+          throw error;
+        }
+        return null;
+      });
+      terrariumRequests.set(tileCoverageKey, terrarium);
+      if (terrariumRequests.size > 2) {
+        const oldestKey = terrariumRequests.keys().next().value;
+        if (oldestKey !== undefined) {
+          terrariumRequests.delete(oldestKey);
+        }
+      }
+    } else {
+      terrariumRequests.delete(tileCoverageKey);
+      terrariumRequests.set(tileCoverageKey, terrarium);
+    }
+
+    const request = Promise.all([
+      terrarium,
+      loadLidarTerrain(coverage, view, signal),
+    ]).then(([terrarium, lidar]) => {
+      const availableLayers = [terrarium, lidar].filter((layer): layer is TerrainDemData => layer !== null);
+      if (availableLayers.length === 0) {
+        throw new Error("No elevation data was available for this terrain area.");
+      }
+      return availableLayers.reduce<TerrainDemData | null>(retainBestTerrainElevation, null)!;
+    });
     pendingRequests.set(requestKey, request);
     void request.then(
       () => pendingRequests.delete(requestKey),

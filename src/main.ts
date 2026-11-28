@@ -33,6 +33,7 @@ import { createGradientCurtainMeshData } from "./gradientCurtain";
 import { createTrackProfileView } from "./trackProfileView";
 import {
   createTerrainDemLoader,
+  getTerrainElevationSourceLabel,
   getTerrainTileCoverage,
   retainBestTerrainElevation,
   type TerrainDemData,
@@ -40,6 +41,7 @@ import {
 } from "./terrainDem";
 import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
+import { createLidarWcsRequest } from "./terrainLidar";
 import { createRideRoadMarkings, getRideCameraPose, getRideViewportSize } from "./riderScene";
 import {
   createAppModel,
@@ -78,6 +80,7 @@ const emptyState = document.querySelector<HTMLElement>("#empty-state");
 const statusMessage = document.querySelector<HTMLElement>("#status-message");
 const engineError = document.querySelector<HTMLElement>("#engine-error");
 const viewerRouteTitle = document.querySelector<HTMLElement>("#viewer-route-title");
+const elevationSource = document.querySelector<HTMLElement>("#elevation-source");
 
 if (
   canvas === null ||
@@ -102,7 +105,8 @@ if (
   emptyState === null ||
   statusMessage === null ||
   engineError === null ||
-  viewerRouteTitle === null
+  viewerRouteTitle === null ||
+  elevationSource === null
 ) {
   throw new Error("The route viewer page is missing required elements.");
 }
@@ -547,11 +551,14 @@ const initializeViewer = async (): Promise<void> => {
 
       activeTerrainFeatures = emptyOpenStreetMapFeatures;
       bestTerrainDem = null;
+      elevationSource.textContent = "Elevation: loading";
       activeTerrainLoader = createTerrainDemLoader(geometry, requestController.signal);
       renderLandscape(null, activeTerrainFeatures, 65, true);
       const initialMapZoom = currentTerrainView()?.zoom ?? 8;
       const getGridSizeAtZoom = (mapZoom: number): number =>
         Math.max(17, Math.min(129, Math.round(65 * 2 ** (mapZoom - initialMapZoom))));
+      const getTerrainCoverageKey = (coverage: ReturnType<typeof getTerrainTileCoverage>, view: TerrainView): string =>
+        `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}:${createLidarWcsRequest(coverage, view)?.url ?? "no-lidar"}`;
 
       updateTerrainForZoom = (): void => {
         const view = currentTerrainView();
@@ -560,7 +567,7 @@ const initializeViewer = async (): Promise<void> => {
         }
 
         const coverage = getTerrainTileCoverage(geometry, view.zoom, view);
-        const coverageKey = `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}`;
+        const coverageKey = getTerrainCoverageKey(coverage, view);
         if (requestedTerrainCoverageKeys.has(coverageKey)) {
           return;
         }
@@ -581,7 +588,7 @@ const initializeViewer = async (): Promise<void> => {
           }
 
           const requestedCoverage = getTerrainTileCoverage(geometry, currentView.zoom, currentView);
-          const requestedCoverageKey = `${requestedCoverage.zoom}:${requestedCoverage.minX}:${requestedCoverage.maxX}:${requestedCoverage.minY}:${requestedCoverage.maxY}`;
+          const requestedCoverageKey = getTerrainCoverageKey(requestedCoverage, currentView);
           if (requestedTerrainCoverageKeys.has(requestedCoverageKey)) {
             return;
           }
@@ -602,6 +609,7 @@ const initializeViewer = async (): Promise<void> => {
             }
 
             bestTerrainDem = retainBestTerrainElevation(bestTerrainDem, terrainDem);
+            elevationSource.textContent = `Elevation: ${getTerrainElevationSourceLabel(terrainDem)}`;
             renderLandscape(
               bestTerrainDem,
               activeTerrainFeatures,
@@ -611,6 +619,7 @@ const initializeViewer = async (): Promise<void> => {
             dispatch({ type: "SetStatus", message: `Terrain updated with elevation tiles at zoom ${terrainDem.zoom}.` });
           }).catch(() => {
             if (requestId === terrainRequestId && bestTerrainDem === null) {
+              elevationSource.textContent = "Elevation: GPX route only";
               dispatch({ type: "SetStatus", message: "Elevation tiles are unavailable; showing GPX-conformed terrain." });
             }
           }).finally(() => {

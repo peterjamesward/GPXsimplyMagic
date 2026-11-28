@@ -127,6 +127,7 @@ button, input { font: inherit; }
 .terrain-control { position: absolute; z-index: 4; top: 14px; right: 14px; min-height: 34px; margin: 0; padding: 0 11px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(191, 216, 206, 0.2); border-radius: 6px; background: rgba(21, 29, 32, 0.92); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2); color: #e8efeb; font-size: 11px; cursor: pointer; }
 .terrain-control input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .terrain-control[hidden] { display: none; }
+.elevation-source { position: absolute; z-index: 4; top: 14px; left: 14px; padding: 8px 10px; border: 1px solid rgba(191, 216, 206, 0.2); border-radius: 6px; background: rgba(21, 29, 32, 0.92); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2); color: #e8efeb; font-size: 10px; }
 .ride-controls { position: absolute; z-index: 4; top: 14px; left: 50%; width: min(660px, calc(100% - 300px)); min-height: 48px; padding: 8px 11px; display: flex; align-items: center; gap: 12px; border: 1px solid rgba(226, 239, 233, 0.22); border-radius: 9px; background: rgba(15, 23, 24, 0.84); box-shadow: 0 7px 26px rgba(0, 0, 0, 0.22); color: #eef4f0; transform: translateX(-50%); backdrop-filter: blur(12px); }
 .ride-controls[hidden] { display: none; }
 #ride-play { flex: 0 0 auto; min-height: 31px; padding: 0 12px; border: 1px solid rgba(118, 221, 189, 0.45); border-radius: 6px; background: #76ddbd; color: #12211d; font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -201,8 +202,9 @@ button, input { font: inherit; }
 .empty-button span { font-size: 16px; }
 .file-hint { margin-top: 11px; color: #677771; font-size: 9px; }
 .viewer-footer { position: absolute; z-index: 2; right: 17px; bottom: 14px; left: 17px; display: flex; justify-content: space-between; color: #71817b; font-size: 7px; pointer-events: none; }
-.data-attribution { position: absolute; z-index: 2; right: 14px; bottom: 30px; color: rgba(235, 242, 238, 0.78); font-size: 9px; text-decoration: none; }
-.data-attribution:hover { color: #fff; text-decoration: underline; }
+.data-attribution { position: absolute; z-index: 2; right: 14px; bottom: 30px; color: rgba(235, 242, 238, 0.78); font-size: 9px; }
+.data-attribution a { color: inherit; text-decoration: none; }
+.data-attribution a:hover { color: #fff; text-decoration: underline; }
 .engine-error { position: absolute; z-index: 3; top: 18px; right: 18px; left: 18px; padding: 12px 14px; border: 1px solid rgba(240, 160, 140, 0.25); border-radius: 7px; background: rgba(52, 33, 30, 0.9); color: #f0b09d; font-size: 11px; line-height: 1.5; }
 .engine-error[hidden] { display: none; }
 
@@ -221,6 +223,7 @@ button, input { font: inherit; }
   .viewer-toolbar { min-height: 33px; }
   .view-switch button { min-height: 29px; padding: 0 10px; font-size: 10px; }
   .terrain-control { top: 10px; right: 10px; gap: 5px; padding: 0 8px; font-size: 9px; }
+  .elevation-source { top: 10px; left: 10px; max-width: calc(100% - 190px); padding: 7px 8px; font-size: 9px; }
   .ride-controls { top: 52px; width: calc(100% - 20px); gap: 7px; padding: 7px; }
   #ride-play { min-height: 29px; padding: 0 8px; font-size: 10px; }
   .ride-speed-label { gap: 3px; font-size: 9px; }

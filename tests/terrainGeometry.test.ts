@@ -3,12 +3,14 @@ import { createTrackMeshData } from "../src/trackGeometry";
 import {
   decodeTerrariumElevation,
   getTerrainDemZoom,
+  getTerrainElevationSourceLabel,
   getTerrainTileCoverage,
   retainBestTerrainElevation,
   type TerrainDemData,
 } from "../src/terrainDem";
 import { createTerrainChunkMeshData, createTerrainHeightSampler, createTerrainMeshData } from "../src/terrainGeometry";
 import { createTerrainScenery } from "../src/terrainScenery";
+import { readRasterElevation } from "../src/rasterInterpolation";
 import type { TrackPoint } from "../src/gpx";
 
 const points: readonly TrackPoint[] = [
@@ -74,6 +76,42 @@ describe("terrain geometry", () => {
     expect(merged.elevationAt(-1, 0)).toBe(1300);
     expect(merged.elevationAt(0, 0)).toBe(1200);
     expect(retainBestTerrainElevation(merged, coarse)).toBe(merged);
+  });
+
+  it("uses LiDAR before Terrarium and reports the active source with fallback", () => {
+    const terrarium = Object.freeze({ source: "terrarium" as const, zoom: 15, elevationAt: () => 1200 });
+    const lidar = Object.freeze({
+      source: "lidar" as const,
+      zoom: 10,
+      elevationAt: (latitude: number) => latitude > 0 ? 1250 : null,
+    });
+    const terrain = retainBestTerrainElevation(terrarium, lidar);
+
+    expect(terrain.elevationAt(1, 0)).toBe(1250);
+    expect(terrain.elevationAt(-1, 0)).toBe(1200);
+    expect(getTerrainElevationSourceLabel(terrain)).toBe("LiDAR · Terrarium fallback");
+    expect(getTerrainElevationSourceLabel(terrarium)).toBe("Terrarium");
+  });
+
+  it("retains a Terrarium fallback as LiDAR patches accumulate", () => {
+    const terrarium = Object.freeze({ source: "terrarium" as const, zoom: 15, elevationAt: () => 1200 });
+    const terrain = Array.from({ length: 5 }, (_value, index) => Object.freeze({
+      source: "lidar" as const,
+      zoom: 10 + index,
+      elevationAt: (latitude: number) => latitude > 0 ? 1250 + index : null,
+    })).reduce<TerrainDemData>(retainBestTerrainElevation, terrarium);
+
+    expect(terrain.layers?.filter((layer) => layer.source === "lidar")).toHaveLength(3);
+    expect(terrain.elevationAt(-1, 0)).toBe(1200);
+    expect(getTerrainElevationSourceLabel(terrain)).toBe("LiDAR · Terrarium fallback");
+  });
+
+  it("returns no raster sample outside downloaded bounds", () => {
+    const raster = new Float32Array([10, 20, 30, 40]);
+
+    expect(readRasterElevation(raster, 2, 2, 0.5, 0.5)).toBe(25);
+    expect(readRasterElevation(raster, 2, 2, -0.1, 0)).toBeNull();
+    expect(readRasterElevation(raster, 2, 2, 2, 1)).toBeNull();
   });
 
   it("bounds retained elevation layers while keeping the newest patch preferred", () => {

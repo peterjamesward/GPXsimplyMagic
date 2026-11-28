@@ -42,8 +42,13 @@
                     <input id="show-terrain" type="checkbox" role="switch" aria-label="Show procedural terrain" checked />
                     <span>Procedural terrain</span>
                   </label>
+                  <div id="elevation-source" class="elevation-source" role="status" aria-live="polite">Elevation: load a route</div>
                   <div id="engine-error" class="engine-error" hidden></div>
-                  <a class="data-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Land cover and buildings © OpenStreetMap contributors · Elevation © AWS Terrain Tiles</a>
+                  <div class="data-attribution">
+                    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Land cover and buildings © OpenStreetMap contributors</a>
+                    · <a href="https://environment.data.gov.uk/dataset/09ea3b37-df3a-4e8b-ac69-fb0842227b04" target="_blank" rel="noreferrer">LiDAR © Environment Agency copyright and/or database right 2022</a>
+                    · AWS Terrarium elevation tiles
+                  </div>
                   <div id="ride-controls" class="ride-controls" hidden>
                     <button id="ride-play" type="button" aria-pressed="false" aria-describedby="ride-readout" disabled>Start ride</button>
                     <label class="ride-seek" for="ride-progress"><span class="visually-hidden">Ride position along route</span><input id="ride-progress" type="range" min="0" max="1000" value="0" disabled /></label>
