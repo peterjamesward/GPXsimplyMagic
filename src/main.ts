@@ -180,6 +180,7 @@ const initializeViewer = async (): Promise<void> => {
           dispatch({ type: "RideDistanceFocused", distanceMeters: point.distanceMeters });
           return;
         }
+        dispatch({ type: "RideStartedAtDistance", distanceMeters: point.distanceMeters });
         const viewport = canvas.getBoundingClientRect();
         const currentMetersPerPixel = trackProjection === null
           ? null

@@ -52,6 +52,29 @@ describe("Elm-style application state", () => {
     expect(model.playback.distanceMeters).toBe(pausedDistance);
   });
 
+  it("starts or repositions Ride when another view focuses a route point", () => {
+    let model = loadTrack().model;
+    const firstFocus = updateApp(model, { type: "RideStartedAtDistance", distanceMeters: 30 });
+    model = firstFocus.model;
+
+    expect(model.playback.distanceMeters).toBe(30);
+    expect(model.playback.isPlaying).toBe(true);
+    expect(firstFocus.effects).toEqual([
+      { type: "ResetRideFrameClock" },
+      { type: "SetRidePaused", paused: false },
+      { type: "SetRideDistance", distanceMeters: 30 },
+    ]);
+
+    model = updateApp(model, { type: "SelectView", view: "map" }).model;
+    model = updateApp(model, { type: "RideFrameElapsed", elapsedSeconds: 1 }).model;
+    expect(model.playback.distanceMeters).toBe(30);
+
+    const focusedWhilePlaying = updateApp(model, { type: "RideStartedAtDistance", distanceMeters: 12 });
+    expect(focusedWhilePlaying.model.playback.distanceMeters).toBe(12);
+    expect(focusedWhilePlaying.model.playback.isPlaying).toBe(true);
+    expect(focusedWhilePlaying.effects).toContainEqual({ type: "SetRideDistance", distanceMeters: 12 });
+  });
+
   it("routes each Ride button click through one app dispatch", () => {
     const runtime = createAppRuntime(loadTrack().model, () => {}, () => {});
     const button = new EventTarget();

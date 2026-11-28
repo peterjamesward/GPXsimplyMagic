@@ -40,6 +40,7 @@ export type AppMessage =
   | Readonly<{ type: "RideSpeedChanged"; speedKilometersPerHour: number }>
   | Readonly<{ type: "RideSeekChanged"; progress: number }>
   | Readonly<{ type: "RideDistanceFocused"; distanceMeters: number }>
+  | Readonly<{ type: "RideStartedAtDistance"; distanceMeters: number }>
   | Readonly<{ type: "RideFrameElapsed"; elapsedSeconds: number }>
   | Readonly<{ type: "SetStatus"; message: string; isError?: boolean }>
   | Readonly<{ type: "ViewerFailed"; message: string }>
@@ -191,6 +192,22 @@ export const updateApp = (model: AppModel, message: AppMessage): AppUpdate => {
       return playback.distanceMeters === model.playback.distanceMeters
         ? unchanged(model)
         : updated({ ...model, playback }, [{ type: "SetRideDistance", distanceMeters: playback.distanceMeters }]);
+    }
+    case "RideStartedAtDistance": {
+      if (model.track === null) {
+        return unchanged(model);
+      }
+      const positionedPlayback = setRidePlaybackDistance(
+        model.playback,
+        message.distanceMeters,
+        model.totalDistanceMeters,
+      );
+      const playback = Object.freeze({ ...positionedPlayback, isPlaying: true });
+      return updated({ ...model, playback }, [
+        { type: "ResetRideFrameClock" },
+        { type: "SetRidePaused", paused: false },
+        { type: "SetRideDistance", distanceMeters: playback.distanceMeters },
+      ]);
     }
     case "RideFrameElapsed": {
       if (model.activeView !== "ride" || !model.playback.isPlaying || model.track === null) {
