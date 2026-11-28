@@ -1,8 +1,8 @@
 import type { TrackMeshData } from "./trackGeometry";
 import { getTerrainAreaBounds, type TerrainElevationSampler } from "./terrainGeometry";
 import { readRasterElevation } from "./rasterInterpolation";
-import { createLidarWcsRequest, loadLidarTerrain } from "./terrainLidar";
-import { getOpenLidarBounds, loadOpenLidarTerrain } from "./openLidarData";
+import { getLidarPatchBounds } from "./lidarBounds";
+import { loadFirstAvailableLidarTerrain } from "./lidarProviders";
 
 const tileSize = 256;
 const terrainTileUrl = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png";
@@ -14,7 +14,7 @@ const maximumLatitude = 85.05112878;
 type TileCoordinate = Readonly<{ x: number; y: number }>;
 type TileData = Readonly<{ coordinate: TileCoordinate; pixels: Uint8ClampedArray }>;
 export type TileCoverage = Readonly<{ zoom: number; minX: number; maxX: number; minY: number; maxY: number }>;
-export type TerrainElevationSource = "lidar" | "open-lidar-data" | "terrarium";
+export type TerrainElevationSource = "lidar" | "open-lidar-data" | "usgs-3dep" | "terrarium";
 type TerrainElevationLayer = Readonly<{
   zoom: number;
   source?: TerrainElevationSource;
@@ -50,7 +50,7 @@ export const retainBestTerrainElevation = (
     return current;
   }
 
-  const isLidar = (source: TerrainElevationSource | undefined): boolean => source === "lidar" || source === "open-lidar-data";
+  const isLidar = (source: TerrainElevationSource | undefined): boolean => source !== undefined && source !== "terrarium";
   const orderedLayers = [...candidateLayers, ...currentLayers]
     .sort((left, right) => Number(isLidar(right.source)) - Number(isLidar(left.source)) || right.zoom - left.zoom);
   const lidarLayers = orderedLayers.filter((layer) => isLidar(layer.source));
@@ -85,6 +85,12 @@ export const getTerrainElevationSourceLabel = (terrain: TerrainDemData): string 
     const layers = terrain.layers ?? [terrain];
     const openLidar = layers.find((layer) => layer.source === "open-lidar-data");
     const provider = openLidar?.sourceName === undefined ? "Open LiDAR Data" : `Open LiDAR Data · ${openLidar.sourceName}`;
+    return sources.includes("terrarium") ? `${provider} · Terrarium fallback` : provider;
+  }
+  if (sources.includes("usgs-3dep")) {
+    const layers = terrain.layers ?? [terrain];
+    const usgs = layers.find((layer) => layer.source === "usgs-3dep");
+    const provider = usgs?.sourceName === undefined ? "USGS 3DEP" : `USGS 3DEP · ${usgs.sourceName.replace(/^3DEP · /, "")}`;
     return sources.includes("terrarium") ? `${provider} · Terrarium fallback` : provider;
   }
   if (sources.includes("lidar")) {
@@ -306,8 +312,7 @@ export const createTerrainDemLoader = (
 
     const coverage = getTerrainTileCoverage(geometry, zoom, view);
     const tileCoverageKey = `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}`;
-    const lidarRequest = createLidarWcsRequest(coverage, view);
-    const requestKey = `${tileCoverageKey}:${lidarRequest?.url ?? "no-lidar"}:${JSON.stringify(getOpenLidarBounds(coverage, view))}`;
+    const requestKey = `${tileCoverageKey}:${JSON.stringify(getLidarPatchBounds(coverage, view))}`;
     const existingRequest = pendingRequests.get(requestKey);
     if (existingRequest !== undefined) {
       return existingRequest;
@@ -334,14 +339,13 @@ export const createTerrainDemLoader = (
       terrariumRequests.set(tileCoverageKey, terrarium);
     }
 
-    const lidar = loadLidarTerrain(coverage, view, signal)
+    const lidar = loadFirstAvailableLidarTerrain(coverage, view, signal)
       .catch((error: unknown) => {
         if (signal?.aborted) {
           throw error;
         }
         return null;
-      })
-      .then((terrain) => terrain ?? loadOpenLidarTerrain(coverage, view, signal));
+      });
     const request = Promise.all([terrarium, lidar]).then(([terrarium, lidar]) => {
       const availableLayers = [terrarium, lidar].filter((layer): layer is TerrainDemData => layer !== null);
       if (availableLayers.length === 0) {

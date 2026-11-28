@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getOpenLidarCandidateDatasets,
-  getOpenLidarBounds,
   loadOpenLidarTileIndex,
   parseOpenLidarCatalog,
   parseOpenLidarTileIndex,
 } from "../src/openLidarData";
+import { getLidarPatchBounds } from "../src/lidarBounds";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -51,9 +51,9 @@ describe("open-lidar-data catalog and tile index", () => {
     const y = Math.floor(((1 - Math.asinh(Math.tan(latitudeRadians)) / Math.PI) / 2) * tileCount);
     const coverage = { zoom, minX: x, maxX: x, minY: y, maxY: y };
     const view = { center: [longitude, latitude] as const, zoom, width: 800, height: 600, pitch: 0 };
-    const bounds = getOpenLidarBounds(coverage, view);
-    const nearbyBounds = getOpenLidarBounds(coverage, { ...view, center: [longitude + 0.001, latitude + 0.001] });
-    const movedBounds = getOpenLidarBounds(coverage, { ...view, center: [longitude + 0.02, latitude] });
+    const bounds = getLidarPatchBounds(coverage, view);
+    const nearbyBounds = getLidarPatchBounds(coverage, { ...view, center: [longitude + 0.001, latitude + 0.001] });
+    const movedBounds = getLidarPatchBounds(coverage, { ...view, center: [longitude + 0.02, latitude] });
 
     expect((bounds.east - bounds.west) * 111_320 * Math.cos(latitudeRadians)).toBeLessThanOrEqual(2_000);
     expect((bounds.north - bounds.south) * 111_320).toBeLessThanOrEqual(2_000);

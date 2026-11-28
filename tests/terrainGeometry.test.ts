@@ -108,6 +108,16 @@ describe("terrain geometry", () => {
     expect(getTerrainElevationSourceLabel(terrain)).toBe("Open LiDAR Data · Denmark DHM_2018-2022 · Terrarium fallback");
   });
 
+  it("identifies USGS 3DEP samples while retaining Terrarium for gaps", () => {
+    const terrain = retainBestTerrainElevation(
+      Object.freeze({ source: "terrarium" as const, zoom: 15, elevationAt: () => 1200 }),
+      Object.freeze({ source: "usgs-3dep" as const, sourceName: "3DEP · or_3dep_2022_sample", zoom: 10, elevationAt: () => 1250 }),
+    );
+
+    expect(terrain.elevationAt(45, -122)).toBe(1250);
+    expect(getTerrainElevationSourceLabel(terrain)).toBe("USGS 3DEP · or_3dep_2022_sample · Terrarium fallback");
+  });
+
   it("retains a Terrarium fallback as LiDAR patches accumulate", () => {
     const terrarium = Object.freeze({ source: "terrarium" as const, zoom: 15, elevationAt: () => 1200 });
     const terrain = Array.from({ length: 5 }, (_value, index) => Object.freeze({

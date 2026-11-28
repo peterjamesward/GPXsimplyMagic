@@ -14,6 +14,10 @@ Both 3D views use grass-blade and tree meshes adapted from [dedekpo/stylized-sce
 
 The asphalt, leafy-grass, rock, and gravel photo-scanned surface maps in `public/surface-textures/` are adapted from the [Golden Hour Ride](https://github.com/jamiemarsland/golden-hour-ride) assets, which credit [Poly Haven](https://polyhaven.com) (CC0). Color maps are optimized local WebP files; the asphalt and grass normal maps use the source JPEGs to avoid further degrading their encoded vectors. No texture-service requests or weather presets are used.
 
+## Elevation data sources
+
+The terrain loader checks known elevation providers in order: the Environment Agency's WCS service where it covers England, regional LiDAR datasets indexed by [Flai's Open LiDAR Data catalog](https://github.com/flai-ai/open-lidar-data), and the [USGS 3DEP Elevation ImageServer](https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer) for U.S. routes. The U.S. provider requests a bounded 2 km patch as a 256×256 GeoTIFF and decodes it locally; 3DEP is a bare-earth elevation service whose source resolution and acquisition data vary by location, and may combine LiDAR with other elevation sources. The [TechnicalGIS LiDAR Elevation Atlas](https://www.technicalgis.com/lidar-elevation-atlas/united-states/) informed source discovery but is not queried by the app. Vertical-datum transformations are not applied. Unavailable coverage or missing samples fall back to AWS Terrarium, and the in-view elevation badge names the source in use. Requests require an internet connection; dataset licensing and attribution vary by source and are linked from the viewer.
+
 ## Run locally
 
 ```sh
