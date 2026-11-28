@@ -10,7 +10,7 @@ import {
 } from "../src/terrainDem";
 import { createTerrainChunkMeshData, createTerrainHeightSampler, createTerrainMeshData } from "../src/terrainGeometry";
 import { createTerrainScenery } from "../src/terrainScenery";
-import { readRasterElevation } from "../src/rasterInterpolation";
+import { readRasterElevation, readSparseRasterElevation } from "../src/rasterInterpolation";
 import type { TrackPoint } from "../src/gpx";
 
 const points: readonly TrackPoint[] = [
@@ -93,6 +93,21 @@ describe("terrain geometry", () => {
     expect(getTerrainElevationSourceLabel(terrarium)).toBe("Terrarium");
   });
 
+  it("uses open catalog LiDAR before Terrarium and identifies its dataset region", () => {
+    const terrarium = Object.freeze({ source: "terrarium" as const, zoom: 15, elevationAt: () => 1200 });
+    const openLidar = Object.freeze({
+      source: "open-lidar-data" as const,
+      sourceName: "Denmark DHM_2018-2022",
+      zoom: 10,
+      elevationAt: (latitude: number) => latitude > 0 ? 1250 : null,
+    });
+    const terrain = retainBestTerrainElevation(terrarium, openLidar);
+
+    expect(terrain.elevationAt(1, 0)).toBe(1250);
+    expect(terrain.elevationAt(-1, 0)).toBe(1200);
+    expect(getTerrainElevationSourceLabel(terrain)).toBe("Open LiDAR Data · Denmark DHM_2018-2022 · Terrarium fallback");
+  });
+
   it("retains a Terrarium fallback as LiDAR patches accumulate", () => {
     const terrarium = Object.freeze({ source: "terrarium" as const, zoom: 15, elevationAt: () => 1200 });
     const terrain = Array.from({ length: 5 }, (_value, index) => Object.freeze({
@@ -112,6 +127,15 @@ describe("terrain geometry", () => {
     expect(readRasterElevation(raster, 2, 2, 0.5, 0.5)).toBe(25);
     expect(readRasterElevation(raster, 2, 2, -0.1, 0)).toBeNull();
     expect(readRasterElevation(raster, 2, 2, 2, 1)).toBeNull();
+  });
+
+  it("interpolates nearby sparse raster cells but leaves larger gaps unknown", () => {
+    const raster = new Float32Array(100).fill(Number.NaN);
+    raster[22] = 123;
+
+    expect(readSparseRasterElevation(raster, 10, 10, 5, 2, 3)).toBe(123);
+    expect(readSparseRasterElevation(raster, 10, 10, 5.1, 2, 3)).toBeNull();
+    expect(readSparseRasterElevation(raster, 10, 10, -1, 2, 3)).toBeNull();
   });
 
   it("bounds retained elevation layers while keeping the newest patch preferred", () => {

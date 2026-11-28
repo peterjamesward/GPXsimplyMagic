@@ -42,6 +42,7 @@ import {
 import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGeometry";
 import { createTerrainScenery } from "./terrainScenery";
 import { createLidarWcsRequest } from "./terrainLidar";
+import { getOpenLidarBounds } from "./openLidarData";
 import { createRideRoadMarkings, getRideCameraPose, getRideViewportSize } from "./riderScene";
 import {
   createAppModel,
@@ -558,7 +559,7 @@ const initializeViewer = async (): Promise<void> => {
       const getGridSizeAtZoom = (mapZoom: number): number =>
         Math.max(17, Math.min(129, Math.round(65 * 2 ** (mapZoom - initialMapZoom))));
       const getTerrainCoverageKey = (coverage: ReturnType<typeof getTerrainTileCoverage>, view: TerrainView): string =>
-        `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}:${createLidarWcsRequest(coverage, view)?.url ?? "no-lidar"}`;
+        `${coverage.zoom}:${coverage.minX}:${coverage.maxX}:${coverage.minY}:${coverage.maxY}:${createLidarWcsRequest(coverage, view)?.url ?? "no-lidar"}:${JSON.stringify(getOpenLidarBounds(coverage, view))}`;
 
       updateTerrainForZoom = (): void => {
         const view = currentTerrainView();
