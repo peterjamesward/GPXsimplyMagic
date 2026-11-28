@@ -31,6 +31,12 @@ import {
   type StylizedTreePlacement,
 } from "./vegetationPlacement";
 import { createStylizedGrassMesh, createStylizedTreeGroup, loadStylizedVegetationAssets, updateStylizedVegetationWind, type StylizedVegetationAssets } from "./stylizedVegetation";
+import {
+  getGroundTextureProfile,
+  loadSurfaceTexture,
+  type GroundTextureProfile,
+  type SurfaceTextureName,
+} from "./surfaceTextures";
 
 type TerrainChunkRecord = Readonly<{ group: THREE.Group; revision: number }>;
 type PendingChunk = Readonly<{ descriptor: RideTerrainChunk; revision: number }>;
@@ -127,47 +133,6 @@ const createPatternTexture = (category: LandUseCategory | null): THREE.CanvasTex
   return texture;
 };
 
-const createAsphaltTextures = (): Readonly<{ color: THREE.CanvasTexture; normal: THREE.DataTexture }> => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
-  const context = canvas.getContext("2d");
-  if (context === null) {
-    throw new Error("Unable to create the road surface texture.");
-  }
-
-  context.fillStyle = "#44494b";
-  context.fillRect(0, 0, 512, 512);
-  const random = createRandom(0x33a57);
-  for (let index = 0; index < 7_000; index += 1) {
-    const radius = 0.3 + random() * 1.5;
-    context.beginPath();
-    context.arc(random() * 512, random() * 512, radius, 0, Math.PI * 2);
-    context.fillStyle = random() > 0.5 ? "rgba(220, 224, 221, 0.18)" : "rgba(8, 11, 12, 0.2)";
-    context.fill();
-  }
-  const color = new THREE.CanvasTexture(canvas);
-  color.colorSpace = THREE.SRGBColorSpace;
-  color.wrapS = THREE.RepeatWrapping;
-  color.wrapT = THREE.RepeatWrapping;
-  color.anisotropy = 8;
-
-  const side = 128;
-  const pixels = new Uint8Array(side * side * 4);
-  for (let index = 0; index < side * side; index += 1) {
-    const offset = index * 4;
-    pixels[offset] = 116 + Math.round(random() * 22);
-    pixels[offset + 1] = 116 + Math.round(random() * 22);
-    pixels[offset + 2] = 250;
-    pixels[offset + 3] = 255;
-  }
-  const normal = new THREE.DataTexture(pixels, side, side, THREE.RGBAFormat);
-  normal.wrapS = THREE.RepeatWrapping;
-  normal.wrapT = THREE.RepeatWrapping;
-  normal.needsUpdate = true;
-  return Object.freeze({ color, normal });
-};
-
 const createSkyMaterial = (): THREE.ShaderMaterial => new THREE.ShaderMaterial({
   side: THREE.BackSide,
   depthWrite: false,
@@ -206,18 +171,32 @@ const createSkyMaterial = (): THREE.ShaderMaterial => new THREE.ShaderMaterial({
   `,
 });
 
-const addTerrainShaderDetail = (material: THREE.MeshStandardMaterial): void => {
+const addTerrainShaderDetail = (
+  material: THREE.MeshStandardMaterial,
+  detailTexture: THREE.Texture,
+  rockTexture: THREE.Texture,
+  blendRockOnSlope: boolean,
+): void => {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.rideSurfaceTexture = { value: detailTexture };
+    shader.uniforms.rideRockTexture = { value: rockTexture };
+    shader.uniforms.rideSlopeRockBlend = { value: blendRockOnSlope ? 1 : 0 };
     shader.vertexShader = shader.vertexShader.replace(
       "#include <common>",
-      "#include <common>\nvarying vec3 vRideTerrainPosition;",
+      "#include <common>\nvarying vec3 vRideTerrainPosition;\nvarying vec3 vRideTerrainWorldNormal;",
     ).replace(
       "#include <begin_vertex>",
-      "#include <begin_vertex>\nvRideTerrainPosition = position;",
+      "#include <begin_vertex>\nvRideTerrainPosition = position;\nvRideTerrainWorldNormal = normalize(mat3(modelMatrix) * normal);",
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       "#include <common>",
-      "#include <common>\nvarying vec3 vRideTerrainPosition;\nfloat rideHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }",
+      `#include <common>
+       varying vec3 vRideTerrainPosition;
+       varying vec3 vRideTerrainWorldNormal;
+       uniform sampler2D rideSurfaceTexture;
+       uniform sampler2D rideRockTexture;
+       uniform float rideSlopeRockBlend;
+       float rideHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
     ).replace(
       "#include <color_fragment>",
       `#include <color_fragment>
@@ -225,9 +204,20 @@ const addTerrainShaderDetail = (material: THREE.MeshStandardMaterial): void => {
        float broadNoise = rideHash(floor(vRideTerrainPosition.xz * 185.0));
        float terrainVariation = 0.91 + fineNoise * 0.12 + broadNoise * 0.08;
        diffuseColor.rgb *= terrainVariation;`,
+    ).replace(
+      "#include <map_fragment>",
+      `#include <map_fragment>
+       vec3 grassTexel = texture2D(rideSurfaceTexture, vMapUv).rgb;
+       vec3 rockTexel = texture2D(rideRockTexture, vMapUv).rgb;
+       float grassLuminance = dot(grassTexel, vec3(0.299, 0.587, 0.114));
+       float rockLuminance = dot(rockTexel, vec3(0.299, 0.587, 0.114));
+       float slope = (1.0 - normalize(vRideTerrainWorldNormal).y) * rideSlopeRockBlend;
+       float rockWeight = smoothstep(0.22, 0.58, slope);
+       float surfaceLuminance = mix(grassLuminance, rockLuminance, rockWeight);
+       diffuseColor.rgb *= 0.78 + surfaceLuminance * 0.42;`,
     );
   };
-  material.customProgramCacheKey = () => "ride-terrain-detail-v1";
+  material.customProgramCacheKey = () => "ride-terrain-detail-v2";
 };
 
 const createPartGeometry = (
@@ -309,16 +299,24 @@ const createTerrainGeometry = (terrain: TerrainMeshData, sceneUnitsPerMeter: num
 const createGroundMaterial = (
   category: LandUseCategory | null,
   texture: THREE.CanvasTexture,
+  profile: GroundTextureProfile,
+  detailTexture: THREE.Texture | null,
+  grassNormal: THREE.Texture,
+  rockTexture: THREE.Texture,
 ): THREE.MeshStandardMaterial => {
   const material = new THREE.MeshStandardMaterial({
     map: texture,
+    normalMap: profile.useGrassNormal ? grassNormal : null,
+    normalScale: new THREE.Vector2(0.18, 0.18),
     color: "#ffffff",
     vertexColors: true,
     roughness: category === "water" ? 0.32 : 0.94,
     metalness: category === "water" ? 0.08 : 0,
     side: THREE.DoubleSide,
   });
-  addTerrainShaderDetail(material);
+  if (detailTexture !== null) {
+    addTerrainShaderDetail(material, detailTexture, rockTexture, profile.blendRockOnSlope);
+  }
   return material;
 };
 
@@ -629,6 +627,15 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), createSkyMaterial());
   sky.frustumCulled = false;
   scene.add(sky);
+  const environmentScene = new THREE.Scene();
+  const environmentSky = new THREE.Mesh(sky.geometry, sky.material);
+  environmentSky.frustumCulled = false;
+  environmentScene.add(environmentSky);
+  const pmremGenerator = new THREE.PMREMGenerator(renderer);
+  const environmentTarget = pmremGenerator.fromScene(environmentScene, 0, 0.1, 1000);
+  pmremGenerator.dispose();
+  scene.environment = environmentTarget.texture;
+  scene.environmentIntensity = 0.42;
 
   const fillLight = new THREE.HemisphereLight("#d8e6e5", "#454638", 1.25);
   scene.add(fillLight);
@@ -647,16 +654,23 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
   scene.add(sun);
   scene.add(sun.target);
 
-  const asphaltTextures = createAsphaltTextures();
+  const surfaceTextures: Readonly<Record<SurfaceTextureName, THREE.Texture>> = Object.freeze({
+    asphaltColor: loadSurfaceTexture("asphaltColor", renderer.capabilities.getMaxAnisotropy()),
+    asphaltNormal: loadSurfaceTexture("asphaltNormal", renderer.capabilities.getMaxAnisotropy()),
+    grassColor: loadSurfaceTexture("grassColor", renderer.capabilities.getMaxAnisotropy()),
+    grassNormal: loadSurfaceTexture("grassNormal", renderer.capabilities.getMaxAnisotropy()),
+    rockColor: loadSurfaceTexture("rockColor", renderer.capabilities.getMaxAnisotropy()),
+    gravelColor: loadSurfaceTexture("gravelColor", renderer.capabilities.getMaxAnisotropy()),
+  });
   const roadMaterial = new THREE.MeshPhysicalMaterial({
-    map: asphaltTextures.color,
-    normalMap: asphaltTextures.normal,
-    normalScale: new THREE.Vector2(0.22, 0.22),
+    map: surfaceTextures.asphaltColor,
+    normalMap: surfaceTextures.asphaltNormal,
+    normalScale: new THREE.Vector2(0.3, 0.3),
     color: "#f4f4f2",
-    roughness: 0.82,
+    roughness: 0.76,
     metalness: 0.025,
-    clearcoat: 0.12,
-    clearcoatRoughness: 0.72,
+    clearcoat: 0.18,
+    clearcoatRoughness: 0.64,
     side: THREE.DoubleSide,
   });
   const markingMaterial = new THREE.MeshStandardMaterial({
@@ -677,7 +691,15 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
         texture = createPatternTexture(category);
         patternTextures.set(category, texture);
       }
-      material = createGroundMaterial(category, texture);
+      const profile = getGroundTextureProfile(category);
+      material = createGroundMaterial(
+        category,
+        texture,
+        profile,
+        profile.detailTexture === null ? null : surfaceTextures[profile.detailTexture],
+        surfaceTextures.grassNormal,
+        surfaceTextures.rockColor,
+      );
       groundMaterials.set(category, material);
     }
     return material;
@@ -687,9 +709,9 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
     if (material === undefined) {
       material = surface === "paved"
         ? new THREE.MeshStandardMaterial({
-            map: asphaltTextures.color,
-            normalMap: asphaltTextures.normal,
-            normalScale: new THREE.Vector2(0.16, 0.16),
+            map: surfaceTextures.asphaltColor,
+            normalMap: surfaceTextures.asphaltNormal,
+            normalScale: new THREE.Vector2(0.2, 0.2),
             roughness: 0.9,
             metalness: 0,
             side: THREE.DoubleSide,
@@ -930,12 +952,12 @@ export const createRideRenderer = (canvas: HTMLCanvasElement): RideSceneRenderer
       groundMaterials.forEach((material) => material.dispose());
       mappedRoadMaterials.forEach((material) => material.dispose());
       stylizedAssets?.dispose();
-      asphaltTextures.color.dispose();
-      asphaltTextures.normal.dispose();
+      Object.values(surfaceTextures).forEach((texture) => texture.dispose());
       roadMaterial.dispose();
       markingMaterial.dispose();
       sky.geometry.dispose();
       (sky.material as THREE.Material).dispose();
+      environmentTarget.dispose();
       renderer.dispose();
     },
   });

@@ -2,9 +2,13 @@
 
 A local-first TypeScript app for opening and exploring cycling GPX tracks. Track parsing and route geometry are pure functions over readonly data; Three.js powers both the 3D route and first-person Ride views, and MapLibre provides the terrain map.
 
-The **Ride** tab uses a dedicated WebGL scene with a first-person camera that follows the route at a selected cycling speed. Start or pause playback, scrub to a position, and follow the rider marker in the elevation profile. It streams nearby terrain in level-of-detail chunks, culls distant scenery, uses PBR road and land-cover materials, procedural sky and terrain shaders, soft sun shadows, fog, and antialiasing. Mapped OSM roads, buildings, water and land use are retained where available; instanced trees and procedural texture detail make gaps look richer but are illustrative, not geographically exact. This remains a visual prototype rather than a complete photorealistic game environment.
+The **Ride** tab uses a dedicated WebGL scene with a first-person camera that follows the route at a selected cycling speed. Start or pause playback, scrub to a position, and follow the rider marker in the elevation profile. It streams nearby terrain in level-of-detail chunks, culls distant scenery, and uses PBR road and land-cover materials, a sky-derived environment map, soft sun shadows, fog, and antialiasing. Mapped OSM roads, buildings, water and land use are retained where available; instanced trees and procedural texture detail make gaps look richer but are illustrative, not geographically exact. This remains a visual prototype rather than a complete photorealistic game environment.
 
 Both 3D views use grass-blade and tree meshes adapted from [dedekpo/stylized-scene](https://github.com/dedekpo/stylized-scene), distributed under its MIT license in `public/stylized-scene/LICENSE`. The original scene's TSL/WebGPU shaders are not used; the app renders the meshes with WebGL-compatible Three.js materials and a lightweight wind vertex shader. Vegetation is deterministic, avoids mapped water, and keeps grass clear of the GPX road.
+
+## Surface texture credits
+
+The asphalt, leafy-grass, rock, and gravel photo-scanned surface maps in `public/surface-textures/` are adapted from the [Golden Hour Ride](https://github.com/jamiemarsland/golden-hour-ride) assets, which credit [Poly Haven](https://polyhaven.com) (CC0). Color maps are optimized local WebP files; the asphalt and grass normal maps use the source JPEGs to avoid further degrading their encoded vectors. No texture-service requests or weather presets are used.
 
 ## Run locally
 
