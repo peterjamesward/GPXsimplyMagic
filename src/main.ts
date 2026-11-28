@@ -42,13 +42,15 @@ import { createTerrainMeshData, type TerrainElevationSampler } from "./terrainGe
 import { createTerrainScenery } from "./terrainScenery";
 import { createRideRoadMarkings, getRideCameraPose, getRideViewportSize } from "./riderScene";
 import {
-  advanceRidePlayback,
-  createRidePlaybackState,
-  seekRidePlayback,
-  setRidePlaybackDistance,
-  setRidePlaybackPlaying,
-  type RidePlaybackState,
-} from "./ridePlayback";
+  createAppModel,
+  createAppRuntime,
+  type AppEffect,
+  type AppMessage,
+  type AppModel,
+  type ViewMode,
+} from "./app";
+import { renderRideControls } from "./appDom";
+import { viewApp } from "./appView";
 import type { RideSceneRenderer } from "./rideRenderer";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
@@ -105,59 +107,48 @@ if (
   throw new Error("The route viewer page is missing required elements.");
 }
 
-type ViewerMode = "route" | "map" | "ride";
-let activeView: ViewerMode = "route";
-let activateSceneView = (_view: ViewerMode): void => {};
 const viewTabs = [showRouteViewButton, showMapViewButton, showRideViewButton] as const;
 
-const showView = (view: ViewerMode): void => {
-  activeView = view;
-  const isMapActive = view === "map";
-  const isRideActive = view === "ride";
-  viewTabs.forEach((tab) => {
-    const isSelected = tab === (isMapActive ? showMapViewButton : isRideActive ? showRideViewButton : showRouteViewButton);
-    tab.setAttribute("aria-selected", String(isSelected));
-    tab.tabIndex = isSelected ? 0 : -1;
+const renderAppView = (model: AppModel): void => {
+  const view = viewApp(model);
+  view.tabs.forEach(({ selected, tabIndex }, index) => {
+    viewTabs[index].setAttribute("aria-selected", String(selected));
+    viewTabs[index].tabIndex = tabIndex;
   });
-  routeViewPanel.setAttribute("aria-hidden", String(isMapActive));
+  const isRideActive = view.activeView === "ride";
+  routeViewPanel.setAttribute("aria-hidden", String(view.routePanelHidden));
   routeViewPanel.setAttribute("aria-labelledby", isRideActive ? "show-ride-view" : "show-route-view");
   routeViewPanel.setAttribute("aria-label", isRideActive ? "First-person bicycle ride view" : "Three.js 3D route view");
-  terrainViewPanel.setAttribute("aria-hidden", String(!isMapActive));
-  routeViewPanel.inert = isMapActive;
-  terrainViewPanel.inert = !isMapActive;
+  terrainViewPanel.setAttribute("aria-hidden", String(view.mapPanelHidden));
+  routeViewPanel.inert = view.routePanelHidden;
+  terrainViewPanel.inert = view.mapPanelHidden;
   routeViewPanel.classList.toggle("is-riding", isRideActive);
-  terrainControl.hidden = view !== "route";
-  rideControls.hidden = !isRideActive;
-  activateSceneView(view);
+  terrainControl.hidden = view.terrainControlHidden;
+  rideControls.hidden = view.rideControlsHidden;
+  viewerRouteTitle.textContent = view.routeTitle;
+  emptyState.hidden = view.emptyStateHidden;
+  viewer.classList.toggle("is-dragging", view.isDraggingFile);
+  terrainVisibilityToggle.checked = view.terrainVisible;
+  renderRideControls({
+    playButton: ridePlayButton,
+    progress: rideProgress,
+    speed: rideSpeed,
+    readout: rideReadout,
+  }, view.ride);
+  statusMessage.textContent = view.statusMessage;
+  statusMessage.classList.toggle("is-error", view.statusIsError);
+  engineError.hidden = view.viewerError === null;
+  engineError.textContent = view.viewerError ?? "";
 };
 
-showRouteViewButton.addEventListener("click", () => showView("route"));
-showMapViewButton.addEventListener("click", () => showView("map"));
-showRideViewButton.addEventListener("click", () => showView("ride"));
-
-viewTabs.forEach((tab, index) => {
-  tab.addEventListener("keydown", (event: KeyboardEvent) => {
-    const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown"
-      ? (index + 1) % viewTabs.length
-      : event.key === "ArrowLeft" || event.key === "ArrowUp"
-        ? (index + viewTabs.length - 1) % viewTabs.length
-        : event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? viewTabs.length - 1
-            : null;
-    if (nextIndex !== null) {
-      event.preventDefault();
-      viewTabs[nextIndex].focus();
-      showView((["route", "map", "ride"] as const)[nextIndex]);
-    }
-  });
-});
-
-const setStatus = (message: string, isError = false): void => {
-  statusMessage.textContent = message;
-  statusMessage.classList.toggle("is-error", isError);
-};
+let runAppEffect = (_effect: AppEffect, _dispatch: (message: AppMessage) => void): void => {};
+const app = createAppRuntime(
+  createAppModel(terrainVisibilityToggle.checked),
+  renderAppView,
+  (effect, dispatch) => runAppEffect(effect, dispatch),
+);
+const dispatch = app.dispatch;
+const model = app.getModel;
 
 const initializeViewer = async (): Promise<void> => {
   try {
@@ -175,26 +166,18 @@ const initializeViewer = async (): Promise<void> => {
     let syncingMapFromRoute = false;
     let updateTerrainForZoom = (): void => {};
     let profileView: ReturnType<typeof createTrackProfileView> | null = null;
-    let ridePlayback = createRidePlaybackState();
+    let lastRideFrameTime: number | null = null;
     let rideRenderer: RideSceneRenderer | null = null;
     let rideRendererLoad: Promise<void> | null = null;
     let updateRideCamera = (): void => {};
-    let setRideDistance = (_distanceMeters: number): void => {};
     let clearSceneHover = (): void => {};
-
-    const updateRidePlayback = (playback: RidePlaybackState): void => {
-      const playbackChanged = playback.isPlaying !== ridePlayback.isPlaying;
-      ridePlayback = playback;
-      if (playbackChanged) {
-        rideRenderer?.setPlaybackPaused(!playback.isPlaying);
-      }
-    };
+    let activateSceneView = (_view: ViewMode): void => {};
 
     const focusTrackPoint = (index: number, metersPerPixel?: number): void => {
       const point = activeGeometry?.routePoints[index];
       if (point !== undefined) {
-        if (activeView === "ride") {
-          setRideDistance(point.distanceMeters);
+        if (model().activeView === "ride") {
+          dispatch({ type: "RideDistanceFocused", distanceMeters: point.distanceMeters });
           return;
         }
         const viewport = canvas.getBoundingClientRect();
@@ -249,7 +232,7 @@ const initializeViewer = async (): Promise<void> => {
     });
 
     const syncRouteFromMap = (): void => {
-      if (activeView === "ride" || trackProjection === null || syncingMapFromRoute) {
+      if (model().activeView === "ride" || trackProjection === null || syncingMapFromRoute) {
         return;
       }
 
@@ -285,7 +268,7 @@ const initializeViewer = async (): Promise<void> => {
     terrainMap.map.on("move", syncRouteFromMap);
 
     const syncMapFromRoute = (): void => {
-      if (activeView !== "ride" && trackProjection !== null && terrainMap.map.isStyleLoaded()) {
+      if (model().activeView !== "ride" && trackProjection !== null && terrainMap.map.isStyleLoaded()) {
         const { width, height } = canvas.getBoundingClientRect();
         const mapView = getMapCameraView(camera, { width, height }, trackProjection);
         if (mapView !== null) {
@@ -309,7 +292,7 @@ const initializeViewer = async (): Promise<void> => {
         }
       }
 
-      if (activeView !== "ride") {
+      if (model().activeView !== "ride") {
         updateTerrainForZoom();
       }
       requestAnimationFrame(syncMapFromRoute);
@@ -331,13 +314,15 @@ const initializeViewer = async (): Promise<void> => {
             rideRenderer.setEnvironment(bestTerrainDem, activeTerrainFeatures);
             updateRideCamera();
           }
-          rideRenderer.setPlaybackPaused(!ridePlayback.isPlaying);
-          rideRenderer.setActive(activeView === "ride");
+          rideRenderer.setPlaybackPaused(!model().playback.isPlaying);
+          rideRenderer.setActive(model().activeView === "ride");
         }).catch((error: unknown) => {
-          engineError.hidden = false;
-          engineError.textContent = error instanceof Error
-            ? `The Ride renderer could not start: ${error.message}`
-            : "The Ride renderer could not start.";
+          dispatch({
+            type: "ViewerFailed",
+            message: error instanceof Error
+              ? `The Ride renderer could not start: ${error.message}`
+              : "The Ride renderer could not start.",
+          });
           rideRendererLoad = null;
         });
       } else {
@@ -349,7 +334,7 @@ const initializeViewer = async (): Promise<void> => {
       }
       updateTerrainForZoom();
     };
-    activateSceneView(activeView);
+    activateSceneView(model().activeView);
     attachRouteCameraControls(camera, canvas, routeRenderer.pickRoad);
     const hoverOverlay = createTrackHoverOverlay(routeRenderer, camera, canvas);
     const profileHoverCard = createTrackHoverCard(viewer);
@@ -362,7 +347,7 @@ const initializeViewer = async (): Promise<void> => {
         profileHoverCard.hide();
         return;
       }
-      if (activeView === "ride") {
+      if (model().activeView === "ride") {
         profileHoverCard.hide();
         return;
       }
@@ -386,58 +371,24 @@ const initializeViewer = async (): Promise<void> => {
       profileHoverCard.setLayout(layout, { x: 0, y: 0 });
       profileHoverCard.show();
     }, focusTrackPoint);
-    const updateRideReadout = (): void => {
-      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
-      rideProgress.value = String(totalDistance > 0 ? Math.round((ridePlayback.distanceMeters / totalDistance) * 1000) : 0);
-      rideReadout.textContent = totalDistance > 0
-        ? `${(ridePlayback.distanceMeters / 1000).toFixed(2)} / ${(totalDistance / 1000).toFixed(2)} km · ${rideSpeed.value} km/h`
-        : "Load a route to ride";
-      profileView?.setRiderDistance(totalDistance > 0 ? ridePlayback.distanceMeters : null);
-    };
     updateRideCamera = (): void => {
       if (activeGeometry === null) {
         return;
       }
       const pose = getRideCameraPose(
         activeGeometry.routePoints,
-        ridePlayback.distanceMeters,
+        model().playback.distanceMeters,
         activeGeometry.projection.sceneUnitsPerMeter,
       );
       rideRenderer?.setCameraPose(pose);
     };
-    setRideDistance = (distanceMeters): void => {
-      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
-      if (totalDistance === undefined) {
-        return;
-      }
-      updateRidePlayback(setRidePlaybackDistance(ridePlayback, distanceMeters, totalDistance));
-      updateRideCamera();
-      updateRideReadout();
-    };
-    const setRidePlaying = (isPlaying: boolean): void => {
-      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
-      updateRidePlayback(setRidePlaybackPlaying(ridePlayback, isPlaying, totalDistance));
-    };
-    ridePlayButton.addEventListener("click", () => {
-      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters;
-      if (totalDistance === undefined) {
-        return;
-      }
-      if (ridePlayback.isPlaying) {
-        setRidePlaying(false);
-      } else {
-        setRidePlaying(true);
-      }
-      ridePlayButton.textContent = ridePlayback.isPlaying ? "Pause ride" : ridePlayback.distanceMeters >= totalDistance ? "Ride again" : "Resume ride";
-    });
+    ridePlayButton.addEventListener("click", () => dispatch({ type: "RideActionActivated" }));
     rideProgress.addEventListener("input", () => {
-      const totalDistance = activeGeometry?.routePoints.at(-1)?.distanceMeters ?? 0;
-      updateRidePlayback(seekRidePlayback(ridePlayback, (Number(rideProgress.value) / 1000) * totalDistance, totalDistance));
-      updateRideCamera();
-      updateRideReadout();
-      ridePlayButton.textContent = ridePlayback.distanceMeters >= totalDistance ? "Ride again" : "Resume ride";
+      dispatch({ type: "RideSeekChanged", progress: Number(rideProgress.value) });
     });
-    rideSpeed.addEventListener("change", updateRideReadout);
+    rideSpeed.addEventListener("change", () => {
+      dispatch({ type: "RideSpeedChanged", speedKilometersPerHour: Number(rideSpeed.value) });
+    });
     const profileResizeObserver = new ResizeObserver(() => profileView.refresh());
     profileResizeObserver.observe(profileCanvas.parentElement ?? profileCanvas);
     canvas.addEventListener("dblclick", (event: MouseEvent) => {
@@ -464,20 +415,11 @@ const initializeViewer = async (): Promise<void> => {
       hoverOverlay.updatePointer(event.clientX, event.clientY);
     });
     canvas.addEventListener("pointerleave", hoverOverlay.hide);
-    let lastRideFrameTime: number | null = null;
-    let lastRideHudTime = 0;
     const advanceRide = (now: number): void => {
       const elapsedSeconds = lastRideFrameTime === null ? 0 : Math.min(0.1, Math.max(0, now - lastRideFrameTime) / 1000);
       lastRideFrameTime = now;
-      if (activeView === "ride" && ridePlayback.isPlaying && activeGeometry !== null) {
-        const totalDistance = activeGeometry.routePoints.at(-1)?.distanceMeters ?? 0;
-        updateRidePlayback(advanceRidePlayback(ridePlayback, elapsedSeconds, Number(rideSpeed.value), totalDistance));
-        updateRideCamera();
-        if (now - lastRideHudTime >= 100 || !ridePlayback.isPlaying) {
-          updateRideReadout();
-          lastRideHudTime = now;
-          ridePlayButton.textContent = ridePlayback.isPlaying ? "Pause ride" : ridePlayback.distanceMeters >= totalDistance ? "Ride again" : "Resume ride";
-        }
+      if (model().activeView === "ride" && model().playback.isPlaying && activeGeometry !== null) {
+        dispatch({ type: "RideFrameElapsed", elapsedSeconds });
         updateTerrainForZoom();
       }
       requestAnimationFrame(advanceRide);
@@ -489,7 +431,6 @@ const initializeViewer = async (): Promise<void> => {
     };
     requestAnimationFrame(refreshHoverOverlay);
 
-    let terrainVisible = terrainVisibilityToggle.checked;
     let terrainRequestId = 0;
     let terrainRequestController: AbortController | null = null;
     let activeTerrainLoader: ((mapZoom: number, view?: TerrainView) => Promise<TerrainDemData>) | null = null;
@@ -500,8 +441,7 @@ const initializeViewer = async (): Promise<void> => {
     let terrainZoomTimer: number | null = null;
     let terrainLoadInProgress = false;
     terrainVisibilityToggle.addEventListener("change", () => {
-      terrainVisible = terrainVisibilityToggle.checked;
-      routeRenderer.setTerrainVisible(terrainVisible);
+      dispatch({ type: "SetTerrainVisibility", visible: terrainVisibilityToggle.checked });
     });
 
     const renderTrack = (track: Track): void => {
@@ -525,13 +465,6 @@ const initializeViewer = async (): Promise<void> => {
       activeTrackLongitudes = getContinuousLongitudes(track.points);
       activeTrackPointRayIndex = createTrackPointRayIndex(geometry.routePoints);
       profileView.setRoute(geometry.routePoints);
-      updateRidePlayback(createRidePlaybackState());
-      setRidePlaying(false);
-      rideProgress.disabled = false;
-      ridePlayButton.disabled = false;
-      rideSpeed.disabled = false;
-      ridePlayButton.textContent = "Start ride";
-      setRideDistance(0);
       terrainMap.setRoute(track.points);
       const gradientCurtain = createGradientCurtainMeshData(geometry);
       const cameraBounds = Object.freeze({
@@ -544,7 +477,7 @@ const initializeViewer = async (): Promise<void> => {
         geometry.projection.sceneUnitsPerMeter,
       );
       routeRenderer.setRoute(geometry, gradientCurtain, roadMarkings);
-      routeRenderer.setTerrainVisible(terrainVisible);
+      routeRenderer.setTerrainVisible(model().terrainVisible);
       hoverOverlay.setRoute(geometry);
       fitCameraToBounds(camera, canvas, cameraBounds);
       const captureCamera = () => ({
@@ -558,7 +491,7 @@ const initializeViewer = async (): Promise<void> => {
       let fittedCamera = captureCamera();
       const currentTerrainView = (): TerrainView | null => {
         const viewport = getRideViewportSize(
-          activeView,
+          model().activeView,
           canvas.getBoundingClientRect(),
           rideCanvas.getBoundingClientRect(),
         );
@@ -566,9 +499,9 @@ const initializeViewer = async (): Promise<void> => {
           return null;
         }
         const { width, height } = viewport;
-        if (activeView === "ride") {
+        if (model().activeView === "ride") {
           const sceneUnitsPerMeter = trackProjection.sceneUnitsPerMeter;
-          const pose = getRideCameraPose(geometry.routePoints, ridePlayback.distanceMeters, sceneUnitsPerMeter);
+          const pose = getRideCameraPose(geometry.routePoints, model().playback.distanceMeters, sceneUnitsPerMeter);
           const latitude = trackProjection.centerLatitude + pose.position.z / (111_320 * sceneUnitsPerMeter);
           const longitude = trackProjection.centerLongitude + pose.position.x / (
             111_320 * sceneUnitsPerMeter * trackProjection.longitudeScale
@@ -592,7 +525,7 @@ const initializeViewer = async (): Promise<void> => {
         const terrain = createTerrainMeshData(geometry, elevationData?.elevationAt ?? noElevation, gridSize, terrainColorAt);
         const scenery = createTerrainScenery(terrain, geometry, undefined, features, landUseIndex);
         routeRenderer.setLandscape(terrain, scenery);
-        routeRenderer.setTerrainVisible(terrainVisible);
+        routeRenderer.setTerrainVisible(model().terrainVisible);
         rideRenderer?.setEnvironment(elevationData, features);
 
         const cameraUnchanged =
@@ -674,10 +607,10 @@ const initializeViewer = async (): Promise<void> => {
               getGridSizeAtZoom(currentTerrainView()?.zoom ?? terrainDem.zoom),
               true,
             );
-            setStatus(`Terrain updated with elevation tiles at zoom ${terrainDem.zoom}.`);
+            dispatch({ type: "SetStatus", message: `Terrain updated with elevation tiles at zoom ${terrainDem.zoom}.` });
           }).catch(() => {
             if (requestId === terrainRequestId && bestTerrainDem === null) {
-              setStatus("Elevation tiles are unavailable; showing GPX-conformed terrain.");
+              dispatch({ type: "SetStatus", message: "Elevation tiles are unavailable; showing GPX-conformed terrain." });
             }
           }).finally(() => {
             if (requestId === terrainRequestId) {
@@ -702,51 +635,120 @@ const initializeViewer = async (): Promise<void> => {
       }).catch(() => {});
       updateTerrainForZoom();
 
-      viewerRouteTitle.textContent = track.name;
-      emptyState.hidden = true;
-      setStatus("Route loaded. Showing GPX-conformed terrain while elevation and map features load…");
     };
 
-    const openFile = async (file: File): Promise<void> => {
-      setStatus(`Reading ${file.name}…`);
-
-      try {
-        renderTrack(parseGpx(await file.text()));
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : "Unable to read this GPX file.", true);
+    runAppEffect = (effect, send): void => {
+      switch (effect.type) {
+        case "ReadTrackFile":
+          void (async () => {
+            let xml: string;
+            try {
+              xml = await effect.file.text();
+            } catch (error) {
+              send({
+                type: "TrackReadFailed",
+                requestId: effect.requestId,
+                message: error instanceof Error ? error.message : "Unable to read this GPX file.",
+              });
+              return;
+            }
+            try {
+              send({ type: "TrackParsed", requestId: effect.requestId, track: parseGpx(xml) });
+            } catch (error) {
+              send({
+                type: "TrackReadFailed",
+                requestId: effect.requestId,
+                message: error instanceof Error ? error.message : "Unable to read this GPX file.",
+              });
+            }
+          })();
+          break;
+        case "RenderTrack":
+          try {
+            renderTrack(effect.track);
+          } catch (error) {
+            send({
+              type: "TrackRenderFailed",
+              requestId: effect.requestId,
+              message: error instanceof Error ? error.message : "Unable to render this GPX route.",
+            });
+          }
+          break;
+        case "ActivateView":
+          activateSceneView(effect.view);
+          break;
+        case "SetTerrainVisibility":
+          routeRenderer.setTerrainVisible(effect.visible);
+          break;
+        case "SetRidePaused":
+          rideRenderer?.setPlaybackPaused(effect.paused);
+          break;
+        case "SetRideDistance":
+          updateRideCamera();
+          profileView?.setRiderDistance(effect.distanceMeters > 0 ? effect.distanceMeters : null);
+          break;
+        case "UpdateTerrainForZoom":
+          updateTerrainForZoom();
+          break;
+        case "ResetRideFrameClock":
+          lastRideFrameTime = null;
+          break;
       }
     };
+
+    showRouteViewButton.addEventListener("click", () => dispatch({ type: "SelectView", view: "route" }));
+    showMapViewButton.addEventListener("click", () => dispatch({ type: "SelectView", view: "map" }));
+    showRideViewButton.addEventListener("click", () => dispatch({ type: "SelectView", view: "ride" }));
+    viewTabs.forEach((tab, index) => {
+      tab.addEventListener("keydown", (event: KeyboardEvent) => {
+        const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown"
+          ? (index + 1) % viewTabs.length
+          : event.key === "ArrowLeft" || event.key === "ArrowUp"
+            ? (index + viewTabs.length - 1) % viewTabs.length
+            : event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? viewTabs.length - 1
+                : null;
+        if (nextIndex !== null) {
+          event.preventDefault();
+          viewTabs[nextIndex].focus();
+          const nextView = (["route", "map", "ride"] as const)[nextIndex];
+          dispatch({ type: "SelectView", view: nextView });
+        }
+      });
+    });
 
     fileInput.addEventListener("change", () => {
       const file = fileInput.files?.[0];
       if (file !== undefined) {
-        void openFile(file);
+        dispatch({ type: "OpenTrackRequested", file });
       }
       fileInput.value = "";
     });
-
     viewer.addEventListener("dragover", (event: DragEvent) => {
       event.preventDefault();
-      viewer.classList.add("is-dragging");
+      dispatch({ type: "FileDragChanged", isDragging: true });
     });
     viewer.addEventListener("dragleave", (event: DragEvent) => {
       if (!viewer.contains(event.relatedTarget as Node | null)) {
-        viewer.classList.remove("is-dragging");
+        dispatch({ type: "FileDragChanged", isDragging: false });
       }
     });
     viewer.addEventListener("drop", (event: DragEvent) => {
       event.preventDefault();
-      viewer.classList.remove("is-dragging");
+      dispatch({ type: "FileDragChanged", isDragging: false });
       const file = event.dataTransfer?.files[0];
       if (file !== undefined) {
-        void openFile(file);
+        dispatch({ type: "OpenTrackRequested", file });
       }
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "WebGL could not start.";
-    engineError.hidden = false;
-    engineError.textContent = `The 3D viewer could not start. Use a WebGL-enabled browser, then reload. (${message})`;
-    setStatus("3D rendering is unavailable in this browser.", true);
+    dispatch({
+      type: "ViewerFailed",
+      message: `The 3D viewer could not start. Use a WebGL-enabled browser, then reload. (${message})`,
+    });
   }
 };
 

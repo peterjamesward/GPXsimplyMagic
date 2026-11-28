@@ -45,7 +45,7 @@
                   <div id="engine-error" class="engine-error" hidden></div>
                   <a class="data-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Land cover and buildings © OpenStreetMap contributors · Elevation © AWS Terrain Tiles</a>
                   <div id="ride-controls" class="ride-controls" hidden>
-                    <button id="ride-play" type="button" disabled>Start ride</button>
+                    <button id="ride-play" type="button" aria-pressed="false" aria-describedby="ride-readout" disabled>Start ride</button>
                     <label class="ride-seek" for="ride-progress"><span class="visually-hidden">Ride position along route</span><input id="ride-progress" type="range" min="0" max="1000" value="0" disabled /></label>
                     <label class="ride-speed-label" for="ride-speed">Speed
                       <select id="ride-speed" disabled>
