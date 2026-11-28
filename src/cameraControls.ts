@@ -290,6 +290,18 @@ export const zoomCameraAtPointer = (
   }
 };
 
+export const orbitCameraWithPointerDelta = (
+  camera: RouteCamera,
+  deltaX: number,
+  deltaY: number,
+  width: number,
+  height: number,
+): void => {
+  const scale = 2 * Math.PI / Math.max(1, Math.min(width, height));
+  camera.alpha += deltaX * scale;
+  camera.beta = Math.max(0.02, Math.min(Math.PI - 0.02, camera.beta - deltaY * scale));
+};
+
 export const attachRouteCameraControls = (
   camera: RouteCamera,
   canvas: HTMLCanvasElement,
@@ -331,9 +343,7 @@ export const attachRouteCameraControls = (
     }
     if (interaction === "orbit") {
       const { width, height } = canvas.getBoundingClientRect();
-      const scale = 2 * Math.PI / Math.max(1, Math.min(width, height));
-      camera.alpha -= (event.clientX - lastX) * scale;
-      camera.beta = Math.max(0.02, Math.min(Math.PI - 0.02, camera.beta + (event.clientY - lastY) * scale));
+      orbitCameraWithPointerDelta(camera, event.clientX - lastX, event.clientY - lastY, width, height);
     } else if (panAnchor === null || !panCameraToPointerAnchor(camera, canvas, event.clientX, event.clientY, panAnchor)) {
       const bounds = canvas.getBoundingClientRect();
       const worldUnitsPerPixel = (2 * camera.radius * Math.tan(camera.fov / 2)) / Math.max(1, bounds.height);

@@ -12,6 +12,7 @@ import {
   getViewportCenterOrbitTarget,
   isControlClickOrbit,
   isPrimaryDragPan,
+  orbitCameraWithPointerDelta,
   panCameraToPointerAnchor,
   setOrbitTargetPreservingView,
   updateRouteCamera,
@@ -91,6 +92,17 @@ describe("route camera controls", () => {
     expect(anchorAfter?.x).toBeCloseTo(anchorBefore?.x ?? 0, 6);
     expect(anchorAfter?.y).toBeCloseTo(anchorBefore?.y ?? 0, 6);
     expect(anchorAfter?.z).toBeCloseTo(anchorBefore?.z ?? 0, 6);
+  });
+
+  it("matches the intended orbit direction on both axes", () => {
+    const camera = createRouteCamera();
+    const alphaBefore = camera.alpha;
+    const betaBefore = camera.beta;
+
+    orbitCameraWithPointerDelta(camera, 20, 20, 800, 600);
+
+    expect(camera.alpha).toBeGreaterThan(alphaBefore);
+    expect(camera.beta).toBeLessThan(betaBefore);
   });
 
   it("centers and fits route bounds with viewport padding", () => {
